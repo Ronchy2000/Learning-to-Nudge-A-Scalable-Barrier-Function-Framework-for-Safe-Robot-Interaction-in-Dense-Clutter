@@ -46,18 +46,28 @@ open outputs/env_layout/env_layout_densities.png
 
 论文用 4 个物体采 1200 条轨迹。mock 环境没有真实接触力学，论文默认的 `tilt_gain=1.8` 产生的 unsafe 样本不够（~1.4%），需要调整两个参数来补偿：
 
+| 参数 | 值 | 说明 |
+|---|---|---|
+| `--num_objects` | 4 | 论文设定：4 个瓶子 |
+| `--num_traj` | 1200 | 论文采集量 |
+| `--table_half_extent` | 0.12 | 缩小桌面让物体更挤（默认 0.35 太稀疏） |
+| `--tilt_gain` | 10.0 | 补偿 mock 环境无真实力学（论文 1.8 用于 Isaac Sim） |
+| `--contact_distance` | 0.10 | 接触判定半径，适当放大让碰撞更频繁 |
+| `--max_episode_steps` | 200 | 给足步数让 EE 穿越 clutter |
+| `--backstep_margin_deg` | 1.0 | 采集时安全阈值(15°)附近的裕度 |
+
+其余参数（`object_radius=0.05`、`tilt_threshold=15°`、`max_action_step=0.01` 等）走 `env.yaml` 默认值，与论文一致。
+
 ```bash
 sh scripts/run_collect.sh \
-  --num_objects 4 \                    # 论文设定：4 个瓶子
-  --num_traj 1200 \                    # 论文采集量
-  --table_half_extent 0.12 \           # 缩小桌面让物体更挤（默认 0.35 太稀疏）
-  --tilt_gain 10.0 \                   # 补偿 mock 环境无真实力学（论文 1.8 用于 Isaac Sim）
-  --contact_distance 0.10 \            # 接触判定半径，适当放大让碰撞更频繁
-  --max_episode_steps 200 \            # 给足步数让 EE 穿越 clutter
-  --backstep_margin_deg 1.0            # 采集时安全阈值(15°)附近的裕度
+  --num_objects 4 \
+  --num_traj 1200 \
+  --table_half_extent 0.12 \
+  --tilt_gain 10.0 \
+  --contact_distance 0.10 \
+  --max_episode_steps 200 \
+  --backstep_margin_deg 1.0
 ```
-
-> 其余参数（`object_radius=0.05`、`tilt_threshold=15°`、`max_action_step=0.01` 等）走 `env.yaml` 默认值，与论文一致。
 
 采完之后看一下数据分布：
 
@@ -157,7 +167,7 @@ echo "σ=0.02 refined: ${CKPT_002_REFINED}"
 python scripts/plot_cbf_heatmap.py \
   --checkpoint_init "${CKPT_001_INIT}" \
   --checkpoint_refined "${CKPT_001_REFINED}" \
-  --num_objects 20 --seed 42 --grid_res 200 \
+  --num_objects 40 --seed 42 --grid_res 200 \
   --output outputs/cbf_heatmap_sigma001.png
 
 open outputs/cbf_heatmap_sigma001.png
@@ -168,7 +178,7 @@ open outputs/cbf_heatmap_sigma001.png
 python scripts/plot_cbf_heatmap.py \
   --checkpoint_init "${CKPT_002_INIT}" \
   --checkpoint_refined "${CKPT_002_REFINED}" \
-  --num_objects 20 --seed 42 --grid_res 200 \
+  --num_objects 40 --seed 42 --grid_res 200 \
   --output outputs/cbf_heatmap_sigma002.png
 
 open outputs/cbf_heatmap_sigma002.png
@@ -179,7 +189,7 @@ open outputs/cbf_heatmap_sigma002.png
 ```bash
 python scripts/plot_cbf_heatmap.py \
   --checkpoint "${CKPT_001_REFINED}" \
-  --num_objects 20 --seed 42 \
+  --num_objects 40 --seed 42 \
   --output outputs/cbf_heatmap_single.png
 ```
 

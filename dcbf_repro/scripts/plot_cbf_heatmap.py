@@ -121,11 +121,18 @@ def draw_cbf_panel(
     title: str = "",
     ee_xy: Optional[np.ndarray] = None,
 ):
-    """论文 Fig.2 风格: 蓝-白-红 diverging colormap + h=0 虚线等值线 + 瓶子圆"""
+    """
+    论文 Fig.2 风格 colormap:
+      h < 0 (unsafe, 靠近物体) → 红色
+      h ≈ 0 (安全边界)         → 白色
+      h > 0 (safe, 远离物体)   → 蓝色
+    对应 matplotlib 'RdBu' (Red-low, Blue-high)。
+    h=0 黑色虚线 = 安全集边界 (∂S)。
+    """
     vmax = max(abs(cbf_2d.min()), abs(cbf_2d.max()), 0.01)
     im = ax.pcolormesh(
         xs, ys, cbf_2d,
-        cmap="RdBu_r", shading="auto",
+        cmap="RdBu", shading="auto",
         vmin=-vmax, vmax=vmax,
     )
     # h=0 等值线（安全/不安全分界）
