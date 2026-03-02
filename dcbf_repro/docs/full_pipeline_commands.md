@@ -35,21 +35,20 @@ cat outputs/env_check/summary.json
 
 ## Step 2. 采集数据
 
-论文用 4 个物体采 1200 条轨迹。这里把桌面调小一点、倾斜增益调大，让交互更密集：
+论文用 4 个物体采 1200 条轨迹。mock 环境没有真实接触力学，论文默认的 `tilt_gain=1.8` 产生的 unsafe 样本不够（~1.4%），需要调整两个参数来补偿：
 
 ```bash
 sh scripts/run_collect.sh \
-  --num_objects 4 \
-  --num_traj 1200 \
-  --policy do_nothing \
-  --table_half_extent 0.20 \
-  --contact_distance 0.10 \
-  --tilt_gain 10.0 \
-  --tilt_decay 0.0003 \
-  --goal_tolerance 0.005 \
-  --max_episode_steps 300 \
-  --backstep_margin_deg 1.0
+  --num_objects 4 \                    # 论文设定：4 个瓶子
+  --num_traj 1200 \                    # 论文采集量
+  --table_half_extent 0.12 \           # 缩小桌面让物体更挤（默认 0.35 太稀疏）
+  --tilt_gain 10.0 \                   # 补偿 mock 环境无真实力学（论文 1.8 用于 Isaac Sim）
+  --contact_distance 0.10 \            # 接触判定半径，适当放大让碰撞更频繁
+  --max_episode_steps 200 \            # 给足步数让 EE 穿越 clutter
+  --backstep_margin_deg 1.0            # 采集时安全阈值(15°)附近的裕度
 ```
+
+> 其余参数（`object_radius=0.05`、`tilt_threshold=15°`、`max_action_step=0.01` 等）走 `env.yaml` 默认值，与论文一致。
 
 采完之后看一下数据分布：
 
@@ -64,7 +63,7 @@ python -m dcbf.data.collect stats \
 cat "${LATEST_DATA}/stats.json"
 ```
 
-`unsafe_ratio_object` 应该 > 0.05。如果全是 safe，把 `tilt_gain` 再调大或 `table_half_extent` 再调小，重新采一遍。
+`unsafe_ratio_object` > 0.01 就能训练，> 0.05 更理想。太低的话继续调大 `tilt_gain` 或调小 `table_half_extent`（不低于 0.12，否则放不下 4 个瓶子）。
 
 ---
 

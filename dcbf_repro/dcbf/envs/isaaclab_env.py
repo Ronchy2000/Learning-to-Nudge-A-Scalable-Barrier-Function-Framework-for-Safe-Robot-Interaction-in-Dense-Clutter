@@ -101,19 +101,30 @@ class MockPandaClutterEnv:
         return self._get_obs(), {"seed": self._last_seed}
 
     def _sample_objects(self) -> np.ndarray:
-        sampled = np.zeros((self.cfg.num_objects, 3), dtype=np.float32)
         min_dist = self.cfg.object_radius * 2.2
+        n = self.cfg.num_objects
+        half = self.cfg.table_half_extent
+
+        # For dense settings (many objects), use grid + jitter for reliable placement
+        if n > 12:
+            # Use tighter packing for grid (2.05x radius vs 2.2x for rejection sampling)
+            grid_min_dist = self.cfg.object_radius * 2.05
+            return self._sample_objects_grid(n, half, grid_min_dist)
+
+        # Rejection sampling with restart for sparse settings
+        sampled = np.zeros((n, 3), dtype=np.float32)
         placed = 0
+        budget = 10000
         retries = 0
-        while placed < self.cfg.num_objects:
-            if retries > 20000:
-                raise RuntimeError("Cannot place objects without overlap in current table setup.")
+        while placed < n:
+            if retries > budget:
+                placed = 0
+                retries = 0
+                budget += 5000
+                if budget > 100000:
+                    raise RuntimeError("Cannot place objects without overlap in current table setup.")
             candidate = np.array(
-                [
-                    self.rng.uniform(-self.cfg.table_half_extent, self.cfg.table_half_extent),
-                    self.rng.uniform(-self.cfg.table_half_extent, self.cfg.table_half_extent),
-                    0.0,
-                ],
+                [self.rng.uniform(-half, half), self.rng.uniform(-half, half), 0.0],
                 dtype=np.float32,
             )
             retries += 1
@@ -125,6 +136,46 @@ class MockPandaClutterEnv:
                 continue
             sampled[placed] = candidate
             placed += 1
+        return sampled
+
+    def _sample_objects_grid(self, n: int, half: float, min_dist: float) -> np.ndarray:
+        """Hexagonal grid placement with jitter — reliable for high object counts."""
+        spacing = min_dist
+        row_h = spacing * np.sqrt(3) / 2  # hex row height
+
+        grid = []
+        y = -half + spacing / 2
+        row_idx = 0
+        while y < half:
+            x_offset = (spacing / 2) if (row_idx % 2) else 0.0
+            x = -half + spacing / 2 + x_offset
+            while x < half:
+                grid.append((x, y))
+                x += spacing
+            y += row_h
+            row_idx += 1
+        grid = np.array(grid, dtype=np.float32)
+
+        # Filter out positions too close to EE or goal
+        valid = []
+        for pos in grid:
+            if np.linalg.norm(pos - self.ee_pos[:2]) < 0.06:
+                continue
+            if np.linalg.norm(pos - self.goal[:2]) < 0.06:
+                continue
+            valid.append(pos)
+        valid = np.array(valid, dtype=np.float32)
+        if len(valid) < n:
+            raise RuntimeError(
+                f"Cannot place {n} objects: hex grid has {len(valid)} valid slots "
+                f"(table_half_extent={half}, min_dist={min_dist:.3f})"
+            )
+        chosen_idx = self.rng.choice(len(valid), size=n, replace=False)
+        sampled = np.zeros((n, 3), dtype=np.float32)
+        jitter_range = spacing * 0.15  # small jitter to break regularity
+        for i, idx in enumerate(chosen_idx):
+            sampled[i, :2] = valid[idx] + self.rng.uniform(-jitter_range, jitter_range, size=2).astype(np.float32)
+            sampled[i, :2] = np.clip(sampled[i, :2], -half, half)
         return sampled
 
     def _goal_distance(self) -> float:
