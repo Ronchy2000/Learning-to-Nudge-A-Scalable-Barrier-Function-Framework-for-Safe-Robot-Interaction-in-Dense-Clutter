@@ -3,27 +3,43 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
 
 import numpy as np
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from dcbf.envs.isaaclab_env import EnvConfig, PandaClutterEnv
-from dcbf.utils.io import dump_json, load_yaml
+from dcbf.utils.io import dump_json, load_yaml, resolve_path
 from dcbf.utils.seeding import set_seed
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Environment sanity check for DCBF pipeline.")
-    parser.add_argument("--config", type=str, default="configs/env.yaml", help="Path to env yaml.")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=str(PROJECT_ROOT / "configs" / "env.yaml"),
+        help="Path to env yaml.",
+    )
     parser.add_argument("--resets", type=int, default=100, help="How many resets.")
     parser.add_argument("--steps", type=int, default=50, help="Random steps per reset.")
-    parser.add_argument("--output_dir", type=str, default="outputs/env_check", help="Output folder.")
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=str(PROJECT_ROOT / "outputs" / "env_check"),
+        help="Output folder.",
+    )
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    cfg_dict = load_yaml(args.config)
+    cfg_path = resolve_path(args.config)
+    cfg_dict = load_yaml(cfg_path)
     set_seed(cfg_dict.get("seed", 42))
     env_cfg = EnvConfig.from_dict(cfg_dict["env"])
     env = PandaClutterEnv(env_cfg)
@@ -72,6 +88,7 @@ def main() -> None:
             writer.writerows(rows)
 
     summary = {
+        "config_path": str(cfg_path),
         "resets": args.resets,
         "steps_per_reset": args.steps,
         "samples": len(tilt_values),
