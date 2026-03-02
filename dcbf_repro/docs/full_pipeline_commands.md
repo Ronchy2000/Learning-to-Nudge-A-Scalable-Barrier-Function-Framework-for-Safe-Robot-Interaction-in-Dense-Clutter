@@ -1,6 +1,6 @@
 # 全流程复现手册
 
-从零开始到拿到论文 Fig.3 / Fig.4 风格的评估图表，一共 9 步。
+从零开始到拿到论文 Fig.2 / Fig.3 / Fig.4 风格的图表，一共 10 步。
 所有命令在同一个终端窗口里顺序执行，变量会在步骤之间传递。
 
 ## 前置条件
@@ -20,7 +20,7 @@ cd dcbf_repro
 
 ---
 
-## Step 1. 环境检查（可选）
+## Step 1. 环境检查 & 布局可视化
 
 跑几轮随机动作，确认环境能正常产生碰撞和倾斜。
 
@@ -30,6 +30,15 @@ cat outputs/env_check/summary.json
 ```
 
 看到 `violation_rate > 0` 就说明环境没问题。
+
+然后画一下物体布局，直观确认不同密度下的放置效果：
+
+```bash
+python scripts/plot_env_layout.py --output_dir outputs/env_layout --seed 42
+open outputs/env_layout/env_layout_densities.png
+```
+
+**env_layout_densities.png** — N=4/10/20/40 在同一张 0.7m×0.7m 桌面上的俯视布局。N=4 是训练密度，其余为泛化测试密度。
 
 ---
 
@@ -139,7 +148,44 @@ echo "σ=0.02 refined: ${CKPT_002_REFINED}"
 
 ---
 
-## Step 7. 全量评估
+## Step 7. CBF 热力图（论文 Fig.2）
+
+用训练后和 refinement 后的 checkpoint 画 CBF 值热力图，对比 refinement 前后 barrier 的变化：
+
+```bash
+# σ=0.01: Initial vs Refined
+python scripts/plot_cbf_heatmap.py \
+  --checkpoint_init "${CKPT_001_INIT}" \
+  --checkpoint_refined "${CKPT_001_REFINED}" \
+  --num_objects 20 --seed 42 --grid_res 200 \
+  --output outputs/cbf_heatmap_sigma001.png
+
+open outputs/cbf_heatmap_sigma001.png
+```
+
+```bash
+# σ=0.02: Initial vs Refined
+python scripts/plot_cbf_heatmap.py \
+  --checkpoint_init "${CKPT_002_INIT}" \
+  --checkpoint_refined "${CKPT_002_REFINED}" \
+  --num_objects 20 --seed 42 --grid_res 200 \
+  --output outputs/cbf_heatmap_sigma002.png
+
+open outputs/cbf_heatmap_sigma002.png
+```
+
+也可以只看单个 checkpoint：
+
+```bash
+python scripts/plot_cbf_heatmap.py \
+  --checkpoint "${CKPT_001_REFINED}" \
+  --num_objects 20 --seed 42 \
+  --output outputs/cbf_heatmap_single.png
+```
+
+---
+
+## Step 8. 全量评估
 
 6 种方法 × 4 种密度（4/10/20/40 objects）× 100 episodes：
 
@@ -157,7 +203,7 @@ sh scripts/run_eval.sh \
 
 ---
 
-## Step 8. 查看结果
+## Step 9. 查看结果
 
 ```bash
 EVAL_DIR="$(cat outputs/eval/LATEST_RUN)"
