@@ -52,7 +52,6 @@ class LearnedGlobalBarrier:
         self.device = device
         self.top_m_objects = top_m_objects
 
-    @torch.no_grad()
     def score_action(self, obs, history: Optional[HistoryView], action_xy: np.ndarray) -> float:
         if history is None or history.object_hist.shape[0] == 0:
             return 0.0
@@ -69,7 +68,8 @@ class LearnedGlobalBarrier:
         robot_feats, object_feats = batch_object_centric_from_history(robot_next, history, object_indices)
         if robot_feats.shape[0] == 0:
             return 0.0
-        robot_t = torch.from_numpy(robot_feats).to(self.device)
-        obj_t = torch.from_numpy(object_feats).to(self.device)
-        barrier_values = self.model(robot_t, obj_t).squeeze(-1)
-        return float(torch.min(barrier_values).item())
+        with torch.no_grad():
+            robot_t = torch.from_numpy(robot_feats).to(self.device)
+            obj_t = torch.from_numpy(object_feats).to(self.device)
+            barrier_values = self.model(robot_t, obj_t).squeeze(-1)
+            return float(torch.min(barrier_values).item())

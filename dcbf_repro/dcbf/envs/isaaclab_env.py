@@ -156,7 +156,8 @@ class MockPandaClutterEnv:
         """Place N non-overlapping circles inside the table.
 
         - N >= 40  → use pre-computed hardcoded layout (instant).
-        - N < 40   → pure rejection sampling (continuous random).
+        - small table (tight packing) → systematic corner placement + jitter.
+        - otherwise → pure rejection sampling (continuous random).
         All circles stay strictly inside the table boundary.
         """
         n = self.cfg.num_objects
@@ -172,7 +173,16 @@ class MockPandaClutterEnv:
             out[:n, :2] = self._FIXED_POS_40[:n]
             return out
 
-        # --- N<40: rejection sampling (continuous random, irregular) ------
+        # --- Small table: packing density too high for rejection sampling --
+        # When the available area is tight, systematic placement is needed.
+        # Compute packing density: if average available area per object is
+        # less than 4× the exclusion area, use grid-based placement.
+        exclusion_area = np.pi * (min_sep / 2) ** 2
+        total_area = (2 * inner) ** 2
+        if total_area < n * exclusion_area * 3.5:
+            return self._sample_objects_tight(n, inner, min_sep)
+
+        # --- Normal table: rejection sampling (continuous random) ---------
         for _restart in range(50):
             pts = np.zeros((n, 2), dtype=np.float32)
             placed = 0
@@ -193,6 +203,60 @@ class MockPandaClutterEnv:
         raise RuntimeError(
             f"Cannot place {n} objects (r={r:.3f}m) in "
             f"table_half_extent={half:.3f}m after 50 restarts."
+        )
+
+    def _sample_objects_tight(self, n: int, inner: float, min_sep: float) -> np.ndarray:
+        """Place objects in a tight space using grid + jitter + rejection.
+
+        Generate candidate positions on a centred grid covering the inner area,
+        then pick N with random jitter, validating no overlaps.
+        """
+        # Build centred grid with spacing = min_sep
+        n_per_dim = int(np.floor(2 * inner / min_sep)) + 1
+        half_span = (n_per_dim - 1) * min_sep / 2
+        coords_1d = np.linspace(-half_span, half_span, n_per_dim)
+        candidates = []
+        for x in coords_1d:
+            for y in coords_1d:
+                if abs(x) <= inner + 1e-9 and abs(y) <= inner + 1e-9:
+                    candidates.append((x, y))
+        candidates = np.array(candidates, dtype=np.float32)
+
+        if len(candidates) < n:
+            raise RuntimeError(
+                f"Cannot fit {n} objects in tight table "
+                f"(inner={inner:.3f}m, min_sep={min_sep:.3f}m, "
+                f"only {len(candidates)} grid candidates)."
+            )
+
+        # Try multiple times: shuffle grid points, pick N, add jitter
+        max_jitter = max(0.0, inner - half_span - 0.001)
+        for _ in range(200):
+            order = self.rng.permutation(len(candidates))
+            pts = np.zeros((n, 2), dtype=np.float32)
+            placed = 0
+            for idx in order:
+                base = candidates[idx].copy()
+                if max_jitter > 0:
+                    jitter = self.rng.uniform(-max_jitter, max_jitter, size=2).astype(np.float32)
+                    xy = np.clip(base + jitter, -inner, inner)
+                else:
+                    xy = base
+                if placed > 0:
+                    if np.linalg.norm(pts[:placed] - xy, axis=1).min() < min_sep:
+                        continue
+                pts[placed] = xy
+                placed += 1
+                if placed == n:
+                    break
+            if placed == n:
+                out = np.zeros((n, 3), dtype=np.float32)
+                out[:, :2] = pts
+                return out
+
+        raise RuntimeError(
+            f"Cannot place {n} objects in tight table "
+            f"(inner={inner:.3f}m, min_sep={min_sep:.3f}m) after 200 attempts."
         )
 
     def _goal_distance(self) -> float:
