@@ -33,6 +33,8 @@ pip install -r requirements.txt
 
 ## 2) 快速运行命令
 
+说明：所有 `run_*.sh` 都会自动使用当前时间创建输出目录（无需手动 `export` 时间戳）。
+
 ### Step A: 环境自检
 ```bash
 python3 scripts/make_env_check.py --config configs/env.yaml --help
@@ -85,6 +87,13 @@ sh scripts/run_train.sh --config configs/train.yaml
 - `outputs/train/LATEST_CKPT`（记录最近一次训练 best checkpoint）
 
 说明：若服务器上 `tensorboard/protobuf` 版本冲突，训练会自动退化为仅写 `csv/jsonl`（不会中断训练）。
+
+论文中常比较 $\sigma=0.01$ 与 $\sigma=0.02$，可直接跑两次：
+```bash
+sh scripts/run_train.sh --config configs/train.yaml --sigma 0.01 --run_name ours_sigma_001_$(date +%Y%m%d_%H%M%S)
+sh scripts/run_train.sh --config configs/train.yaml --sigma 0.02 --run_name ours_sigma_002_$(date +%Y%m%d_%H%M%S)
+```
+其中 $\sigma$ 在离散 CBF 约束 $L_d$ 中控制安全裕度，通常更大 $\sigma$ 更保守。
 
 ### Step F: Refinement + Finetune
 ```bash

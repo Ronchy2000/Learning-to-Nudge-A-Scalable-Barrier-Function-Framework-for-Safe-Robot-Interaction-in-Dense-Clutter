@@ -253,6 +253,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--val_glob", type=str, default=None, help="Override val data glob.")
     parser.add_argument("--out_dir", type=str, default=None, help="Override output directory.")
     parser.add_argument("--run_name", type=str, default=None, help="Override run name.")
+    parser.add_argument("--sigma", type=float, default=None, help="Override loss sigma.")
     return parser
 
 
@@ -263,6 +264,8 @@ def main() -> None:
         cfg["data"]["train_glob"] = args.train_glob
     if args.val_glob is not None:
         cfg["data"]["val_glob"] = args.val_glob
+    if args.sigma is not None:
+        cfg["loss"]["sigma"] = float(args.sigma)
     best_ckpt = train_model(cfg, resume=args.resume, out_dir=args.out_dir, run_name=args.run_name)
     print(f"[train] done. best checkpoint: {best_ckpt}")
 

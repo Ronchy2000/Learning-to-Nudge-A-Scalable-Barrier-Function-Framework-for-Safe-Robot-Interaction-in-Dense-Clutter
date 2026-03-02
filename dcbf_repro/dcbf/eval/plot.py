@@ -49,15 +49,25 @@ def main() -> None:
             for n in num_objects:
                 hit = sub[sub["num_objects"] == n]
                 values.append(float(hit.iloc[0][metric_key]) if len(hit) > 0 else np.nan)
+            if "rate" in metric_key:
+                values = [v * 100.0 if not np.isnan(v) else v for v in values]
             offset = (idx - (len(methods) - 1) / 2.0) * width
-            ax.bar(x + offset, values, width=width, label=method, alpha=0.9)
+            bars = ax.bar(x + offset, values, width=width, label=method, alpha=0.9)
+            if "rate" in metric_key:
+                ax.bar_label(
+                    bars,
+                    labels=[f"{v:.0f}" if not np.isnan(v) else "" for v in values],
+                    padding=2,
+                    fontsize=8,
+                )
         ax.set_title(metric_name)
         ax.set_xlabel("Number of Cylinders (N)")
         ax.set_xticks(x)
         ax.set_xticklabels(num_objects)
         ax.grid(alpha=0.3)
         if "rate" in metric_key:
-            ax.set_ylim(0.0, 1.0)
+            ax.set_ylabel(f"{metric_name} (%)")
+            ax.set_ylim(0.0, 105.0)
     axes[0].legend(loc="best")
     fig.tight_layout()
 
