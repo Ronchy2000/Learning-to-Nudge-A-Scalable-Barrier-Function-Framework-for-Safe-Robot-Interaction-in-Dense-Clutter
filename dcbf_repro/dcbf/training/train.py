@@ -50,6 +50,7 @@ def run_epoch(
     loss_cfg: LossConfig,
     device: str,
     grad_clip: float = 5.0,
+    progress_desc: Optional[str] = None,
 ) -> Dict[str, float]:
     train_mode = optimizer is not None
     model.train(train_mode)
@@ -57,7 +58,12 @@ def run_epoch(
     b_safe, b_unsafe = [], []
     num_batches = 0
 
-    iterator = tqdm(loader, leave=False, desc="train" if train_mode else "val")
+    iterator = tqdm(
+        loader,
+        leave=False,
+        dynamic_ncols=True,
+        desc=progress_desc or ("train" if train_mode else "val"),
+    )
     for batch in iterator:
         robot_t = batch["robot_t"].to(device)
         robot_tp1 = batch["robot_tp1"].to(device)
@@ -184,7 +190,13 @@ def train_model(
         print(f"[train] resumed from {resume}, start_epoch={start_epoch}, best_val={best_val:.6f}")
 
     num_epochs = int(override_epochs if override_epochs is not None else optim_cfg["epochs"])
+    print(
+        f"[train] start epochs: {num_epochs} (global from {start_epoch} to {start_epoch + num_epochs - 1}), "
+        f"train_batches={len(train_loader)}, val_batches={len(val_loader)}"
+    )
     for epoch in range(start_epoch, start_epoch + num_epochs):
+        local_epoch = epoch - start_epoch + 1
+        print(f"[train] epoch {local_epoch}/{num_epochs} (global={epoch}) start")
         train_stats = run_epoch(
             model,
             train_loader,
@@ -192,6 +204,7 @@ def train_model(
             loss_cfg=loss_cfg,
             device=device,
             grad_clip=float(optim_cfg.get("grad_clip", 5.0)),
+            progress_desc=f"train e{local_epoch}/{num_epochs}",
         )
         val_stats = run_epoch(
             model,
@@ -200,6 +213,7 @@ def train_model(
             loss_cfg=loss_cfg,
             device=device,
             grad_clip=float(optim_cfg.get("grad_clip", 5.0)),
+            progress_desc=f"val   e{local_epoch}/{num_epochs}",
         )
         row = {"epoch": epoch, **{f"train/{k}": v for k, v in train_stats.items()}, **{f"val/{k}": v for k, v in val_stats.items()}}
         csv_logger.log(row)
@@ -219,6 +233,11 @@ def train_model(
         if (epoch + 1) % int(optim_cfg.get("save_every", 5)) == 0:
             periodic_path = run_dir / f"epoch_{epoch:04d}.pt"
             save_checkpoint(periodic_path, model, optimizer, epoch=epoch, best_val=best_val, cfg=cfg)
+        print(
+            f"[train] epoch {local_epoch}/{num_epochs} (global={epoch}) done | "
+            f"train_total={train_stats['total']:.6f} val_total={val_stats['total']:.6f} "
+            f"best_val={best_val:.6f} drift_ratio={val_stats['drift_violation_ratio']:.3f}"
+        )
 
     csv_logger.close()
     jsonl_logger.close()
