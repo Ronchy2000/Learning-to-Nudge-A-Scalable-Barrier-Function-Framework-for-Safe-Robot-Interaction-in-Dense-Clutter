@@ -1,12 +1,15 @@
 # 全流程复现手册
 
-从零开始到拿到论文 Fig.2 / Fig.3 / Fig.4 风格的图表，一共 10 步。
-所有命令在同一个终端窗口里顺序执行，变量会在步骤之间传递。
+从零开始到拿到论文 Fig.2 / Fig.3 / Fig.4 风格的图表，一共 10 步（Step 0–9）。
+
+**所有命令在同一个终端窗口里顺序执行**，shell 变量（`LATEST_DATA`、`CKPT_*` 等）会在步骤之间传递。如果中间断开了终端，需要手动重新设好变量再继续（见末尾「断点续跑」）。
+
+---
 
 ## 前置条件
 
 - macOS / Linux，已安装 Anaconda3
-- conda 环境名 `MARL`（按你的实际环境改）
+- conda 环境名 `MARL`（按你的实际环境名改）
 - 已安装 `requirements.txt` 中的依赖
 
 ---
@@ -22,7 +25,7 @@ cd dcbf_repro
 
 ## Step 1. 环境检查 & 布局可视化
 
-跑几轮随机动作，确认环境能正常产生碰撞和倾斜。
+跑几轮随机动作，确认环境能正常产生碰撞和倾斜：
 
 ```bash
 python scripts/make_env_check.py --resets 50 --steps 30
@@ -31,32 +34,29 @@ cat outputs/env_check/summary.json
 
 看到 `violation_rate > 0` 就说明环境没问题。
 
-然后画一下物体布局，直观确认不同密度下的放置效果：
+画物体布局图，确认不同密度下的放置效果：
 
 ```bash
 python scripts/plot_env_layout.py --output_dir outputs/env_layout --seed 42
-open outputs/env_layout/env_layout_densities.png
 ```
 
-**env_layout_densities.png** — N=4/10/20/40 在同一张 0.7m×0.7m 桌面上的俯视布局。N=4 是训练密度，其余为泛化测试密度。
+输出 `outputs/env_layout/env_layout_densities.png` — N=4/10/20/40 四密度俯视布局。
 
 ---
 
 ## Step 2. 采集数据
 
-论文用 4 个物体采 1200 条轨迹。mock 环境没有真实接触力学，论文默认的 `tilt_gain=1.8` 产生的 unsafe 样本不够（~1.4%），需要调整两个参数来补偿：
+论文用 4 个物体采 1200 条轨迹。mock 环境没有真实接触力学，需要调大 `tilt_gain` 来补偿：
 
 | 参数 | 值 | 说明 |
 |---|---|---|
-| `--num_objects` | 4 | 论文设定：4 个瓶子 |
+| `--num_objects` | 4 | 论文设定 |
 | `--num_traj` | 1200 | 论文采集量 |
-| `--table_half_extent` | 0.12 | 缩小桌面让物体更挤（默认 0.35 太稀疏） |
-| `--tilt_gain` | 10.0 | 补偿 mock 环境无真实力学（论文 1.8 用于 Isaac Sim） |
-| `--contact_distance` | 0.10 | 接触判定半径，适当放大让碰撞更频繁 |
-| `--max_episode_steps` | 200 | 给足步数让 EE 穿越 clutter |
-| `--backstep_margin_deg` | 1.0 | 采集时安全阈值(15°)附近的裕度 |
-
-其余参数（`object_radius=0.05`、`tilt_threshold=15°`、`max_action_step=0.01` 等）走 `env.yaml` 默认值，与论文一致。
+| `--table_half_extent` | 0.12 | 缩小桌面让物体更挤 |
+| `--tilt_gain` | 10.0 | 补偿 mock 无真实力学 |
+| `--contact_distance` | 0.10 | 放大接触判定半径 |
+| `--max_episode_steps` | 200 | 给足步数穿越 clutter |
+| `--backstep_margin_deg` | 1.0 | 安全阈值附近裕度 |
 
 ```bash
 sh scripts/run_collect.sh \
@@ -69,7 +69,7 @@ sh scripts/run_collect.sh \
   --backstep_margin_deg 1.0
 ```
 
-采完之后看一下数据分布：
+采完后检查数据分布（保存 `LATEST_DATA` 变量供后续步骤使用）：
 
 ```bash
 LATEST_DATA="$(cat outputs/data/LATEST_RUN)"
@@ -82,11 +82,15 @@ python -m dcbf.data.collect stats \
 cat "${LATEST_DATA}/stats.json"
 ```
 
-`unsafe_ratio_object` > 0.01 就能训练，> 0.05 更理想。太低的话继续调大 `tilt_gain` 或调小 `table_half_extent`（不低于 0.12，否则放不下 4 个瓶子）。
+**检查标准：** `unsafe_ratio_object` > 0.01 可训练，> 0.05 更理想。太低则调大 `tilt_gain` 或调小 `table_half_extent`（不低于 0.12）。
+
+> **关于数据平衡：** 训练已默认开启 `balance_safe_unsafe: true`（`train.yaml`），使用 `WeightedRandomSampler` 过采样 unsafe 样本。但如果 `unsafe_ratio_object` < 1%，即使平衡也信号不足——必须调参重新采集。
 
 ---
 
 ## Step 3. 训练 σ=0.01
+
+`run_train.sh` 会自动从 `outputs/data/LATEST_RUN` 读取最新数据路径：
 
 ```bash
 RUN_001="ours_sigma_001"
@@ -94,7 +98,13 @@ RUN_001="ours_sigma_001"
 sh scripts/run_train.sh \
   --sigma 0.01 \
   --run_name "${RUN_001}"
+```
 
+训练日志输出类似 `train_total=0.0042 val_total=0.0038 best_val=0.0038 drift_ratio=0.22`。
+
+训练完设置 checkpoint 变量：
+
+```bash
 CKPT_001_INIT="outputs/train/${RUN_001}/best.pt"
 if [ ! -f "${CKPT_001_INIT}" ]; then
   CKPT_001_INIT="outputs/train/${RUN_001}/latest.pt"
@@ -106,13 +116,19 @@ echo "σ=0.01 checkpoint: ${CKPT_001_INIT}"
 
 ## Step 4. Refinement σ=0.01
 
+从 Step 3 的 checkpoint 开始做 near-boundary refinement：
+
 ```bash
 sh scripts/run_refine.sh \
   --checkpoint "${CKPT_001_INIT}" \
   --dataset_glob "${LATEST_DATA}/train_*.npz" \
   --output_dir "outputs/refine/sigma_001" \
   --run_name "refined_sigma_001"
+```
 
+设置 refined checkpoint 变量：
+
+```bash
 CKPT_001_REFINED="$(find outputs/refine/sigma_001 -name best.pt | sort | tail -1)"
 if [ -z "${CKPT_001_REFINED}" ]; then
   CKPT_001_REFINED="$(find outputs/refine/sigma_001 -name latest.pt | sort | tail -1)"
@@ -130,7 +146,9 @@ RUN_002="ours_sigma_002"
 sh scripts/run_train.sh \
   --sigma 0.02 \
   --run_name "${RUN_002}"
+```
 
+```bash
 CKPT_002_INIT="outputs/train/${RUN_002}/best.pt"
 if [ ! -f "${CKPT_002_INIT}" ]; then
   CKPT_002_INIT="outputs/train/${RUN_002}/latest.pt"
@@ -148,7 +166,9 @@ sh scripts/run_refine.sh \
   --dataset_glob "${LATEST_DATA}/train_*.npz" \
   --output_dir "outputs/refine/sigma_002" \
   --run_name "refined_sigma_002"
+```
 
+```bash
 CKPT_002_REFINED="$(find outputs/refine/sigma_002 -name best.pt | sort | tail -1)"
 if [ -z "${CKPT_002_REFINED}" ]; then
   CKPT_002_REFINED="$(find outputs/refine/sigma_002 -name latest.pt | sort | tail -1)"
@@ -160,31 +180,46 @@ echo "σ=0.02 refined: ${CKPT_002_REFINED}"
 
 ## Step 7. CBF 热力图（论文 Fig.2）
 
-用训练后和 refinement 后的 checkpoint 画 CBF 值热力图，对比 refinement 前后 barrier 的变化：
+### 7a. 解析式 CBF（无需模型，用于展示/对比）
+
+用距离公式 h_i = ||p_ee - p_i|| - r_safe 生成理想 barrier 热力图。**组会展示优先用这个**：
 
 ```bash
-# σ=0.01: Initial vs Refined
+python scripts/plot_cbf_heatmap.py \
+  --analytical \
+  --num_objects 40 --seed 42 --grid_res 300 \
+  --safety_margin 0.03 \
+  --output outputs/cbf_heatmap_analytical.png
+```
+
+`--safety_margin` 是加在 `object_radius`（0.05m）上的额外安全裕度，r_safe = 0.05 + 0.03 = 0.08m。
+
+### 7b. 训练模型 CBF：双图对比（Initial vs Refined）
+
+用 Step 3–6 的 checkpoint 画论文 Fig.2 风格的左右对比：
+
+```bash
 python scripts/plot_cbf_heatmap.py \
   --checkpoint_init "${CKPT_001_INIT}" \
   --checkpoint_refined "${CKPT_001_REFINED}" \
-  --num_objects 20 --seed 42 --grid_res 200 \
+  --num_objects 40 --seed 42 --grid_res 200 \
   --output outputs/cbf_heatmap_sigma001.png
-
-open outputs/cbf_heatmap_sigma001.png
 ```
 
 ```bash
-# σ=0.02: Initial vs Refined
 python scripts/plot_cbf_heatmap.py \
   --checkpoint_init "${CKPT_002_INIT}" \
   --checkpoint_refined "${CKPT_002_REFINED}" \
-  --num_objects 20 --seed 42 --grid_res 200 \
+  --num_objects 40 --seed 42 --grid_res 200 \
   --output outputs/cbf_heatmap_sigma002.png
-
-open outputs/cbf_heatmap_sigma002.png
 ```
 
-也可以只看单个 checkpoint：
+运行时会打印诊断信息，关注 `neg%`：
+
+- `neg%` 在 20–50% → 正常，能看到红色 unsafe 区域和 h=0 等值线
+- `neg%` = 0.0% → 模型没学到有意义的 barrier（需要调整训练数据后重训）
+
+### 7c. 训练模型 CBF：单图
 
 ```bash
 python scripts/plot_cbf_heatmap.py \
@@ -192,6 +227,18 @@ python scripts/plot_cbf_heatmap.py \
   --num_objects 40 --seed 42 \
   --output outputs/cbf_heatmap_single.png
 ```
+
+### 热力图参数说明
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `--num_objects` | 20 | 场景中物体数量（论文 Fig.2 用 ~40） |
+| `--seed` | 42 | 物体摆放随机种子 |
+| `--grid_res` | 200 | 网格分辨率（300 更平滑但更慢） |
+| `--grid_range` | -0.35 0.35 | x/y 扫描范围（= table_half_extent） |
+| `--fixed_z` | 0.12 | EE 固定高度 |
+| `--object_radius` | 0.05 | 瓶子半径（与 env.yaml 一致） |
+| `--safety_margin` | 0.03 | 仅 `--analytical` 模式：附加安全裕度 |
 
 ---
 
@@ -209,7 +256,7 @@ sh scripts/run_eval.sh \
   --episodes 100
 ```
 
-`--learned_method` 把方法名映射到对应的 checkpoint，会覆盖 `eval.yaml` 中的默认路径。
+`--learned_method "name=path"` 把方法名映射到 checkpoint 路径，优先级高于 `eval.yaml` 中的默认值。
 
 ---
 
@@ -217,15 +264,16 @@ sh scripts/run_eval.sh \
 
 ```bash
 EVAL_DIR="$(cat outputs/eval/LATEST_RUN)"
-
-# 终端里看表格
 column -t -s, "${EVAL_DIR}/metrics.csv"
+```
 
-# 打开图片（macOS）
+macOS 上打开图片：
+
+```bash
 open "${EVAL_DIR}/metrics_plot.png"
 ```
 
-最终的 `metrics_plot.png` 包含 4 个子图：Success Rate / Violation Rate / Stalling Rate / Avg Episode Steps，与论文 Fig.3 & Fig.4 对应。
+`metrics_plot.png` 包含 4 个子图：Success Rate / Violation Rate / Stalling Rate / Avg Episode Steps，对应论文 Fig.3 & Fig.4。
 
 ---
 
@@ -240,8 +288,6 @@ sh scripts/run_eval.sh \
   --refined_checkpoint "${CKPT_001_REFINED}" \
   --num_objects_list 4 10 20 40 \
   --episodes 100
-
-open "$(cat outputs/eval/LATEST_RUN)/metrics_plot.png"
 ```
 
 ---
@@ -269,3 +315,67 @@ open "$(cat outputs/eval/LATEST_RUN)/metrics_plot.png"
 | gamma | 0.98 | CBF 衰减率 |
 | sigma | 0.01 or 0.02 | 安全裕度 |
 | history_len | 10 | 历史窗口 T |
+| balance_safe_unsafe | true | 过采样 unsafe 样本平衡训练 |
+
+## 输出目录结构
+
+```
+outputs/
+├── data/                          # Step 2 采集的数据
+│   ├── LATEST_RUN                 # 文本文件，内容为最新数据目录路径
+│   └── 20260303_143000/
+│       ├── train_0000.npz ... train_0009.npz
+│       ├── val_0000.npz
+│       └── stats.json
+├── train/                         # Step 3, 5 训练产物
+│   ├── LATEST_RUN
+│   ├── LATEST_CKPT
+│   ├── ours_sigma_001/
+│   │   ├── best.pt, latest.pt
+│   │   ├── metrics.csv, metrics.jsonl
+│   │   ├── resolved_config.json
+│   │   └── tb/                    # TensorBoard 日志
+│   └── ours_sigma_002/
+├── refine/                        # Step 4, 6 refinement 产物
+│   ├── LATEST_RUN
+│   ├── LATEST_CKPT
+│   ├── sigma_001/
+│   │   ├── refined_data/          # near-boundary rollout 新采的数据
+│   │   ├── refined_sigma_001/     # finetune 结果
+│   │   │   ├── best.pt, latest.pt
+│   │   │   └── metrics.csv
+│   │   └── refine_summary.json
+│   └── sigma_002/
+├── eval/                          # Step 8 评估结果
+│   ├── LATEST_RUN
+│   └── 20260303_160000/
+│       ├── metrics.csv
+│       └── metrics_plot.png
+├── env_check/                     # Step 1
+├── env_layout/                    # Step 1
+├── cbf_heatmap_analytical.png     # Step 7a
+├── cbf_heatmap_sigma001.png       # Step 7b
+├── cbf_heatmap_sigma002.png       # Step 7b
+└── cbf_heatmap_single.png         # Step 7c
+```
+
+## 断点续跑
+
+如果终端断开了，重新设好变量即可从任意步骤继续：
+
+```bash
+conda activate MARL
+cd dcbf_repro
+
+LATEST_DATA="$(cat outputs/data/LATEST_RUN)"
+
+CKPT_001_INIT="outputs/train/ours_sigma_001/best.pt"
+CKPT_001_REFINED="$(find outputs/refine/sigma_001 -name best.pt | sort | tail -1)"
+
+CKPT_002_INIT="outputs/train/ours_sigma_002/best.pt"
+CKPT_002_REFINED="$(find outputs/refine/sigma_002 -name best.pt | sort | tail -1)"
+
+echo "DATA:    ${LATEST_DATA}"
+echo "σ=0.01:  init=${CKPT_001_INIT}  refined=${CKPT_001_REFINED}"
+echo "σ=0.02:  init=${CKPT_002_INIT}  refined=${CKPT_002_REFINED}"
+```

@@ -5,10 +5,12 @@
 将 EE 的 (x,y) 在桌面网格上逐点扫描，对每个位置计算全局 barrier 值
 （所有物体的 h_i 取 min），用蓝-红 diverging colormap 渲染。
 
-支持两种模式：
+支持三种模式：
   1. 单 checkpoint：生成 1 张图
   2. 双 checkpoint（--checkpoint_init + --checkpoint_refined）：
      生成论文 Fig.2 风格的左右对比图（Initial CBF / Refinement CBF）
+  3. --analytical：用解析距离公式 h_i = ||p_ee - p_i|| - r_safe
+     生成理想 CBF 热力图（无需训练模型），用于展示/对比
 
 物体位置可以手动指定（--objects），也可以从 mock 环境随机采样
 （--num_objects + --seed）。
@@ -108,6 +110,30 @@ def compute_cbf_grid(
             barriers[s:e] = model(r_t, o_t).squeeze(-1).cpu().numpy()
 
     return barriers.reshape(G, N).min(axis=1)  # (G,)
+
+
+# ── 解析式 CBF（距离型）────────────────────────────────
+def compute_analytical_cbf_grid(
+    grid_xy: np.ndarray,       # (G, 2)
+    object_xy: np.ndarray,     # (N, 2)
+    object_radius: float,
+    safety_margin: float = 0.03,
+) -> np.ndarray:
+    """
+    解析式 barrier 函数 h_i(x) = ||x - o_i|| - r_safe
+    其中 r_safe = object_radius + safety_margin。
+    全局 barrier = min_i h_i(x)。
+
+    与论文 Eq.3 对应：h(x) ≥ 0 为安全集，h(x) < 0 为不安全。
+
+    Returns: (G,) array
+    """
+    r_safe = object_radius + safety_margin
+    # distances: (G, N)
+    diffs = grid_xy[:, None, :] - object_xy[None, :, :]  # (G, N, 2)
+    dists = np.linalg.norm(diffs, axis=2)                 # (G, N)
+    h_per_obj = dists - r_safe                            # (G, N)
+    return h_per_obj.min(axis=1)                          # (G,)
 
 
 # ── 绘制单个子图 ─────────────────────────────────────
@@ -241,6 +267,11 @@ def main():
     p.add_argument("--object_radius", type=float, default=0.05)
     p.add_argument("--device", type=str, default="cpu")
     p.add_argument("--batch_size", type=int, default=4096)
+    # analytical 模式
+    p.add_argument("--analytical", action="store_true",
+                   help="Use analytical distance-based CBF (no model needed)")
+    p.add_argument("--safety_margin", type=float, default=0.03,
+                   help="Extra safety margin added to object_radius for analytical CBF")
     p.add_argument(
         "--output", type=str,
         default=str(PROJECT_ROOT / "outputs" / "cbf_heatmap.png"),
@@ -248,10 +279,10 @@ def main():
     )
     args = p.parse_args()
 
-    # 确定是单图还是双图模式
+    # 确定模式
     two_panel = (args.checkpoint_init is not None and args.checkpoint_refined is not None)
-    if not two_panel and args.checkpoint is None:
-        p.error("需要指定 --checkpoint (单图) 或 --checkpoint_init + --checkpoint_refined (双图)")
+    if not args.analytical and not two_panel and args.checkpoint is None:
+        p.error("需要指定 --checkpoint (单图) 或 --checkpoint_init + --checkpoint_refined (双图) 或 --analytical")
 
     # 物体位置
     ee_xy = None
@@ -272,7 +303,29 @@ def main():
     grid_xy = np.stack([X.ravel(), Y.ravel()], axis=1).astype(np.float32)
     print(f"[heatmap] grid {args.grid_res}x{args.grid_res}, range [{lo}, {hi}]")
 
-    if two_panel:
+    if args.analytical:
+        # ── 解析式 CBF 模式 ──
+        cbf_flat = compute_analytical_cbf_grid(
+            grid_xy, object_xy, args.object_radius, args.safety_margin,
+        ).reshape(args.grid_res, args.grid_res)
+
+        # 诊断
+        pcts = np.percentile(cbf_flat, [1, 5, 25, 50, 75, 95, 99])
+        neg_frac = (cbf_flat < 0).mean() * 100
+        print(f"[Analytical] min={cbf_flat.min():.6f}  max={cbf_flat.max():.6f}  "
+              f"neg%={neg_frac:.1f}%  "
+              f"r_safe={args.object_radius + args.safety_margin:.3f}")
+
+        fig, ax = plt.subplots(1, 1, figsize=(7, 6))
+        im = draw_cbf_panel(
+            ax, cbf_flat, xs, ys, object_xy, args.object_radius,
+            title=f"Analytical CBF  ($r_{{safe}}$={args.object_radius + args.safety_margin:.3f})",
+            ee_xy=ee_xy,
+        )
+        fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
+        fig.tight_layout()
+
+    elif two_panel:
         # ── 双图模式 (论文 Fig.2) ──
         model_init, mc_init = load_model(args.checkpoint_init, args.device)
         model_ref, mc_ref = load_model(args.checkpoint_refined, args.device)

@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, WeightedRandomSampler
 
 
 def slice_history(history: np.ndarray, history_len: Optional[int]) -> np.ndarray:
@@ -57,6 +57,36 @@ class DCBFDataset(Dataset):
 
     def __len__(self) -> int:
         return self.length
+
+    def make_balanced_sampler(self) -> WeightedRandomSampler:
+        """
+        根据 safe/unsafe 标签构造 WeightedRandomSampler，使每个 epoch 中
+        safe 和 unsafe 样本被采样的期望次数相等。
+
+        论文提到 "balanced, by discarding samples in free space"，
+        用过采样替代丢弃，效果等价且不丢数据。
+        """
+        label_key = "label_safe_global" if self.use_global_label else "label_safe_obj"
+        labels = self.data[label_key]
+        n_safe = (labels > 0.5).sum()
+        n_unsafe = (labels <= 0.5).sum()
+        if n_unsafe == 0:
+            raise ValueError(
+                f"Dataset has 0 unsafe samples (all {n_safe} safe). "
+                f"Cannot balance. Increase tilt_gain or reduce table_half_extent."
+            )
+        # 每个安全样本权重 = 1/(2*n_safe)，每个 unsafe 样本权重 = 1/(2*n_unsafe)
+        w_safe = 1.0 / (2.0 * n_safe)
+        w_unsafe = 1.0 / (2.0 * n_unsafe)
+        weights = np.where(labels > 0.5, w_safe, w_unsafe).astype(np.float64)
+        print(f"[balance] safe={n_safe} ({n_safe / len(labels) * 100:.1f}%)  "
+              f"unsafe={n_unsafe} ({n_unsafe / len(labels) * 100:.1f}%)  "
+              f"w_safe/w_unsafe={w_safe / w_unsafe:.4f}")
+        return WeightedRandomSampler(
+            weights=torch.from_numpy(weights),
+            num_samples=len(labels),
+            replacement=True,
+        )
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         obj_prev = slice_history(self.data["obj_hist_prev"][idx], self.history_len)

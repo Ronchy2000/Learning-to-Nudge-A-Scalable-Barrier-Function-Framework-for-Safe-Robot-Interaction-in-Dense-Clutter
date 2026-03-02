@@ -151,13 +151,25 @@ def train_model(
 
     train_ds = DCBFDataset(files=train_files, history_len=history_len, use_global_label=use_global_label)
     val_ds = DCBFDataset(files=val_files, history_len=history_len, use_global_label=use_global_label)
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=data_cfg["batch_size"],
-        shuffle=True,
-        num_workers=data_cfg["num_workers"],
-        drop_last=False,
-    )
+
+    balance = bool(data_cfg.get("balance_safe_unsafe", True))
+    if balance:
+        sampler = train_ds.make_balanced_sampler()
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=data_cfg["batch_size"],
+            sampler=sampler,
+            num_workers=data_cfg["num_workers"],
+            drop_last=False,
+        )
+    else:
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=data_cfg["batch_size"],
+            shuffle=True,
+            num_workers=data_cfg["num_workers"],
+            drop_last=False,
+        )
     val_loader = DataLoader(
         val_ds,
         batch_size=data_cfg["batch_size"],
