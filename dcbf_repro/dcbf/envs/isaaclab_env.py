@@ -104,11 +104,14 @@ class MockPandaClutterEnv:
         min_dist = self.cfg.object_radius * 2.2
         n = self.cfg.num_objects
         half = self.cfg.table_half_extent
+        r = self.cfg.object_radius
+        # Inset by object_radius so circles stay fully inside the table
+        inner = half - r
 
         # For dense settings (many objects), use grid + jitter for reliable placement
         if n > 12:
-            # Use tighter packing for grid (2.05x radius vs 2.2x for rejection sampling)
-            grid_min_dist = self.cfg.object_radius * 2.05
+            # Slightly more than diameter → 0.5 mm visual gap, avoids float32 touching
+            grid_min_dist = self.cfg.object_radius * 2.02
             return self._sample_objects_grid(n, half, grid_min_dist)
 
         # Rejection sampling with restart for sparse settings
@@ -124,7 +127,7 @@ class MockPandaClutterEnv:
                 if budget > 100000:
                     raise RuntimeError("Cannot place objects without overlap in current table setup.")
             candidate = np.array(
-                [self.rng.uniform(-half, half), self.rng.uniform(-half, half), 0.0],
+                [self.rng.uniform(-inner, inner), self.rng.uniform(-inner, inner), 0.0],
                 dtype=np.float32,
             )
             retries += 1
@@ -139,24 +142,35 @@ class MockPandaClutterEnv:
         return sampled
 
     def _sample_objects_grid(self, n: int, half: float, min_dist: float) -> np.ndarray:
-        """Hexagonal grid placement with jitter — reliable for high object counts."""
+        """Hexagonal grid placement with adaptive jitter.
+
+        Guarantees:
+          1. Every circle center is within [-inner, inner] so circles stay
+             strictly inside the table (inner = half - radius - pad).
+          2. No two circles overlap: jitter magnitude is derived from the
+             actual minimum pairwise distance of the chosen grid centres.
+        """
+        r = self.cfg.object_radius
+        pad = 0.005  # 5 mm inward padding — circles won't touch table edge
+        inner = half - r - pad
         spacing = min_dist
         row_h = spacing * np.sqrt(3) / 2  # hex row height
 
+        # --- build hex grid ------------------------------------------------
         grid = []
-        y = -half + spacing / 2
+        y = -inner
         row_idx = 0
-        while y < half:
+        while y <= inner:
             x_offset = (spacing / 2) if (row_idx % 2) else 0.0
-            x = -half + spacing / 2 + x_offset
-            while x < half:
+            x = -inner + x_offset
+            while x <= inner:
                 grid.append((x, y))
                 x += spacing
             y += row_h
             row_idx += 1
         grid = np.array(grid, dtype=np.float32)
 
-        # Filter out positions too close to EE or goal
+        # --- soft EE / goal exclusion --------------------------------------
         valid = []
         for pos in grid:
             if np.linalg.norm(pos - self.ee_pos[:2]) < 0.06:
@@ -164,18 +178,52 @@ class MockPandaClutterEnv:
             if np.linalg.norm(pos - self.goal[:2]) < 0.06:
                 continue
             valid.append(pos)
-        valid = np.array(valid, dtype=np.float32)
+        valid = np.array(valid, dtype=np.float32) if valid else grid[:0]
+        if len(valid) < n:
+            valid = grid  # fall back to all grid points
         if len(valid) < n:
             raise RuntimeError(
                 f"Cannot place {n} objects: hex grid has {len(valid)} valid slots "
                 f"(table_half_extent={half}, min_dist={min_dist:.3f})"
             )
+
+        # --- choose n positions from the grid ------------------------------
         chosen_idx = self.rng.choice(len(valid), size=n, replace=False)
         sampled = np.zeros((n, 3), dtype=np.float32)
-        jitter_range = spacing * 0.15  # small jitter to break regularity
         for i, idx in enumerate(chosen_idx):
-            sampled[i, :2] = valid[idx] + self.rng.uniform(-jitter_range, jitter_range, size=2).astype(np.float32)
-            sampled[i, :2] = np.clip(sampled[i, :2], -half, half)
+            sampled[i, :2] = valid[idx]
+
+        # --- adaptive jitter ----------------------------------------------
+        # Compute the minimum pairwise distance among chosen centres;
+        # jitter must not exceed the "spare" margin above min_dist.
+        if n > 1:
+            pts = sampled[:, :2]
+            diff = pts[:, None, :] - pts[None, :, :]
+            d = np.linalg.norm(diff, axis=2)
+            np.fill_diagonal(d, np.inf)
+            min_pair = float(d.min())
+            # Each of the two neighbours can shift by at most margin/2
+            max_jitter = max(0.0, (min_pair - min_dist) * 0.45)
+        else:
+            max_jitter = spacing * 0.15
+
+        if max_jitter > 1e-4:
+            for i in range(n):
+                jittered = sampled[i, :2] + self.rng.uniform(
+                    -max_jitter, max_jitter, size=2
+                ).astype(np.float32)
+                jittered = np.clip(jittered, -inner, inner)
+                # Verify this jittered position doesn't overlap any other
+                ok = True
+                for j in range(n):
+                    if j == i:
+                        continue
+                    if np.linalg.norm(jittered - sampled[j, :2]) < min_dist:
+                        ok = False
+                        break
+                if ok:
+                    sampled[i, :2] = jittered
+
         return sampled
 
     def _goal_distance(self) -> float:

@@ -151,7 +151,7 @@ def main():
         default=str(PROJECT_ROOT / "outputs" / "env_layout"),
         help="Output directory (default: <project_root>/outputs/env_layout)",
     )
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=16)
     args = parser.parse_args()
 
     out = Path(args.output_dir)

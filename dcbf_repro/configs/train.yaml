@@ -1,4 +1,4 @@
-seed: 42
+seed: 32
 data:
   train_glob: outputs/data/train_*.npz
   val_glob: outputs/data/val_*.npz

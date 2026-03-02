@@ -37,7 +37,7 @@ cat outputs/env_check/summary.json
 画物体布局图，确认不同密度下的放置效果：
 
 ```bash
-python scripts/plot_env_layout.py --output_dir outputs/env_layout --seed 42
+python scripts/plot_env_layout.py --output_dir outputs/env_layout --seed 62
 ```
 
 输出 `outputs/env_layout/env_layout_densities.png` — N=4/10/20/40 四密度俯视布局。
@@ -182,7 +182,7 @@ echo "σ=0.02 refined: ${CKPT_002_REFINED}"
 
 ### 7a. 解析式 CBF（无需模型，用于展示/对比）
 
-用距离公式 h_i = ||p_ee - p_i|| - r_safe 生成理想 barrier 热力图。**组会展示优先用这个**：
+用距离公式 h_i = ||p_ee - p_i|| - r_safe 生成理想 barrier 热力图:
 
 ```bash
 python scripts/plot_cbf_heatmap.py \
