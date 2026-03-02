@@ -23,7 +23,7 @@ class EnvConfig:
     stall_progress_eps: float = 0.0005
     contact_distance: float = 0.05
     tilt_gain: float = 1.8
-    tilt_decay: float = 0.02
+    tilt_decay: float = 0.002
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EnvConfig":

@@ -72,6 +72,18 @@ def collect_dataset(args: argparse.Namespace) -> None:
     env_cfg = EnvConfig.from_dict(cfg["env"])
     if args.num_objects is not None:
         env_cfg.num_objects = args.num_objects
+    if args.table_half_extent is not None:
+        env_cfg.table_half_extent = float(args.table_half_extent)
+    if args.contact_distance is not None:
+        env_cfg.contact_distance = float(args.contact_distance)
+    if args.tilt_gain is not None:
+        env_cfg.tilt_gain = float(args.tilt_gain)
+    if args.tilt_decay is not None:
+        env_cfg.tilt_decay = float(args.tilt_decay)
+    if args.goal_tolerance is not None:
+        env_cfg.goal_tolerance = float(args.goal_tolerance)
+    if args.max_episode_steps is not None:
+        env_cfg.max_episode_steps = int(args.max_episode_steps)
     env = PandaClutterEnv(env_cfg)
 
     policy_fn = make_policy(args.policy)
@@ -198,6 +210,11 @@ def collect_dataset(args: argparse.Namespace) -> None:
     summary = {
         "num_trajectories": args.num_traj,
         "history_len": args.history_len,
+        "env_num_objects": env_cfg.num_objects,
+        "env_table_half_extent": env_cfg.table_half_extent,
+        "env_contact_distance": env_cfg.contact_distance,
+        "env_tilt_gain": env_cfg.tilt_gain,
+        "env_tilt_decay": env_cfg.tilt_decay,
         "train_files": train_writer.saved_files,
         "val_files": val_writer.saved_files,
         "object_safe_ratio": float(obj_safe_total / max(obj_count_total, 1)),
@@ -268,6 +285,12 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--output_dir", type=str, default="outputs/data")
     collect_parser.add_argument("--num_traj", type=int, default=200)
     collect_parser.add_argument("--num_objects", type=int, default=None)
+    collect_parser.add_argument("--table_half_extent", type=float, default=None)
+    collect_parser.add_argument("--contact_distance", type=float, default=None)
+    collect_parser.add_argument("--tilt_gain", type=float, default=None)
+    collect_parser.add_argument("--tilt_decay", type=float, default=None)
+    collect_parser.add_argument("--goal_tolerance", type=float, default=None)
+    collect_parser.add_argument("--max_episode_steps", type=int, default=None)
     collect_parser.add_argument("--history_len", type=int, default=10)
     collect_parser.add_argument("--policy", type=str, default="do_nothing", choices=["do_nothing", "apf"])
     collect_parser.add_argument("--use_filter", action="store_true", help="Use toy-barrier safety filter in collection.")
