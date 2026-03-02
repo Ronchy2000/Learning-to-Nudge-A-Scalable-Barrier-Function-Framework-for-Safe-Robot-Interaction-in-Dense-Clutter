@@ -99,6 +99,9 @@ def main() -> None:
     parser.add_argument("--methods", type=str, nargs="+", default=None, help="Override methods list.")
     parser.add_argument("--num_objects_list", type=int, nargs="+", default=None, help="Override clutter sizes.")
     parser.add_argument("--episodes", type=int, default=None, help="Override episodes_per_setting.")
+    parser.add_argument("--output_dir", type=str, default=None, help="Override output directory.")
+    parser.add_argument("--initial_checkpoint", type=str, default=None, help="Override initial DCBF checkpoint.")
+    parser.add_argument("--refined_checkpoint", type=str, default=None, help="Override refined DCBF checkpoint.")
     args = parser.parse_args()
     cfg = load_yaml(args.config)
     if args.methods is not None:
@@ -107,12 +110,21 @@ def main() -> None:
         cfg["num_objects_list"] = [int(v) for v in args.num_objects_list]
     if args.episodes is not None:
         cfg["episodes_per_setting"] = int(args.episodes)
+    if args.output_dir is not None:
+        cfg["output_dir"] = args.output_dir
+    if args.initial_checkpoint is not None:
+        cfg["initial_checkpoint"] = args.initial_checkpoint
+    if args.refined_checkpoint is not None:
+        cfg["refined_checkpoint"] = args.refined_checkpoint
     set_seed(cfg.get("seed", 7))
 
     env_cfg_yaml = load_yaml(cfg["env_config"])
     base_env_cfg = EnvConfig.from_dict(env_cfg_yaml["env"])
     out_dir = Path(cfg["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[eval] output_dir={out_dir}")
+    print(f"[eval] initial_checkpoint={cfg.get('initial_checkpoint')}")
+    print(f"[eval] refined_checkpoint={cfg.get('refined_checkpoint')}")
 
     methods: List[str] = cfg["methods"]
     num_objects_list: List[int] = cfg["num_objects_list"]

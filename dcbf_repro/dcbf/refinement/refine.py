@@ -196,9 +196,30 @@ def rollout_refinement_data(
 def main() -> None:
     parser = argparse.ArgumentParser(description="DCBF refinement: near-boundary selection + safest-action rollout + finetune.")
     parser.add_argument("--config", type=str, default="configs/refine.yaml")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Override initial checkpoint path.")
+    parser.add_argument("--dataset_glob", type=str, default=None, help="Override training dataset glob.")
+    parser.add_argument("--output_dir", type=str, default=None, help="Override output directory.")
+    parser.add_argument("--train_config", type=str, default=None, help="Override train config path.")
+    parser.add_argument("--env_config", type=str, default=None, help="Override env config path.")
+    parser.add_argument("--rollout_steps", type=int, default=None, help="Override refinement rollout steps.")
+    parser.add_argument("--run_name", type=str, default=None, help="Override finetune run_name.")
     args = parser.parse_args()
 
     cfg = load_yaml(args.config)
+    if args.checkpoint is not None:
+        cfg["checkpoint"] = args.checkpoint
+    if args.dataset_glob is not None:
+        cfg["dataset_glob"] = args.dataset_glob
+    if args.output_dir is not None:
+        cfg["output_dir"] = args.output_dir
+    if args.train_config is not None:
+        cfg["train_config"] = args.train_config
+    if args.env_config is not None:
+        cfg["env_config"] = args.env_config
+    if args.rollout_steps is not None:
+        cfg["rollout_steps"] = int(args.rollout_steps)
+    if args.run_name is not None:
+        cfg["finetune"]["run_name"] = args.run_name
     set_seed(cfg.get("seed", 123))
     out_dir = Path(cfg["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)

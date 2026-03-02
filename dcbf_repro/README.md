@@ -46,19 +46,18 @@ python3 scripts/make_env_check.py --config configs/env.yaml
 ```bash
 sh scripts/run_collect.sh --help
 sh scripts/run_collect.sh --num_traj 200 --policy do_nothing --use_filter
-python3 -m dcbf.data.collect stats --data_glob "outputs/data/train_*.npz"
+python3 -m dcbf.data.collect stats --data_glob "outputs/data/*/train_*.npz"
 ```
 产物：
-- `outputs/data/train_*.npz`, `outputs/data/val_*.npz`
-- `outputs/data/collect_summary.json`
-- `outputs/data/stats_summary.json`
+- `outputs/data/<timestamp>/train_*.npz`, `outputs/data/<timestamp>/val_*.npz`
+- `outputs/data/<timestamp>/collect_summary.json`
+- `outputs/data/LATEST_RUN`（记录最近一次采集目录）
 
 ### 论文同款优先配置（默认配置）
 ```bash
 # 1) 用 4 个物体采集初始数据（对应论文训练设定）
 sh scripts/run_collect.sh \
   --config configs/env.yaml \
-  --output_dir outputs/data \
   --num_objects 4 \
   --num_traj 1200 \
   --policy do_nothing \
@@ -80,9 +79,9 @@ sh scripts/run_train.sh --help
 sh scripts/run_train.sh --config configs/train.yaml
 ```
 产物：
-- `outputs/train/initial_dcbf/best.pt`
-- `outputs/train/initial_dcbf/metrics.csv`
-- `outputs/train/initial_dcbf/tb/*`
+- `outputs/train/initial_dcbf_<timestamp>/best.pt`
+- `outputs/train/initial_dcbf_<timestamp>/metrics.csv`
+- `outputs/train/LATEST_RUN`（记录最近一次训练目录）
 
 说明：若服务器上 `tensorboard/protobuf` 版本冲突，训练会自动退化为仅写 `csv/jsonl`（不会中断训练）。
 
@@ -92,9 +91,9 @@ sh scripts/run_refine.sh --help
 sh scripts/run_refine.sh --config configs/refine.yaml
 ```
 产物：
-- `outputs/refine/refined_data/refined_*.npz`
-- `outputs/refine/refined_dcbf/best.pt`
-- `outputs/refine/refine_summary.json`
+- `outputs/refine/<timestamp>/refined_data/refined_*.npz`
+- `outputs/refine/<timestamp>/refined_dcbf_<timestamp>/best.pt`
+- `outputs/refine/LATEST_RUN`（记录最近一次 refine 目录）
 
 ### Step G: 评估与作图（N=4/10/20/40）
 ```bash
@@ -102,9 +101,10 @@ sh scripts/run_eval.sh --help
 sh scripts/run_eval.sh --config configs/eval.yaml
 ```
 产物：
-- `outputs/eval/metrics.csv`
-- `outputs/eval/episodes.csv`
-- `outputs/eval/metrics_plot.png`
+- `outputs/eval/<timestamp>/metrics.csv`
+- `outputs/eval/<timestamp>/episodes.csv`
+- `outputs/eval/<timestamp>/metrics_plot.png`
+- `outputs/eval/LATEST_RUN`（记录最近一次评估目录）
 
 ### Rollout（单方法快速检查）
 ```bash
