@@ -96,8 +96,17 @@ def run_episode(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate DCBF and baselines on clutter settings.")
     parser.add_argument("--config", type=str, default="configs/eval.yaml")
+    parser.add_argument("--methods", type=str, nargs="+", default=None, help="Override methods list.")
+    parser.add_argument("--num_objects_list", type=int, nargs="+", default=None, help="Override clutter sizes.")
+    parser.add_argument("--episodes", type=int, default=None, help="Override episodes_per_setting.")
     args = parser.parse_args()
     cfg = load_yaml(args.config)
+    if args.methods is not None:
+        cfg["methods"] = args.methods
+    if args.num_objects_list is not None:
+        cfg["num_objects_list"] = [int(v) for v in args.num_objects_list]
+    if args.episodes is not None:
+        cfg["episodes_per_setting"] = int(args.episodes)
     set_seed(cfg.get("seed", 7))
 
     env_cfg_yaml = load_yaml(cfg["env_config"])

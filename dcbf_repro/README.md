@@ -44,8 +44,8 @@ python3 scripts/make_env_check.py --config configs/env.yaml
 
 ### Step B/C: 采集数据（含 nominal/filter/back-stepping）
 ```bash
-./scripts/run_collect.sh --help
-./scripts/run_collect.sh --num_traj 200 --policy do_nothing --use_filter
+sh scripts/run_collect.sh --help
+sh scripts/run_collect.sh --num_traj 200 --policy do_nothing --use_filter
 python3 -m dcbf.data.collect stats --data_glob "outputs/data/train_*.npz"
 ```
 产物：
@@ -53,10 +53,31 @@ python3 -m dcbf.data.collect stats --data_glob "outputs/data/train_*.npz"
 - `outputs/data/collect_summary.json`
 - `outputs/data/stats_summary.json`
 
+### 论文同款优先配置（默认配置）
+```bash
+# 1) 用 4 个物体采集初始数据（对应论文训练设定）
+sh scripts/run_collect.sh \
+  --config configs/env.yaml \
+  --output_dir outputs/data \
+  --num_objects 4 \
+  --num_traj 1200 \
+  --policy do_nothing \
+  --use_filter
+
+# 2) 训练 Initial DCBF
+sh scripts/run_train.sh --config configs/train.yaml
+
+# 3) Refinement（s=4）
+sh scripts/run_refine.sh --config configs/refine.yaml
+
+# 4) 评估（4/10/20/40）
+sh scripts/run_eval.sh --config configs/eval.yaml
+```
+
 ### Step D: 训练 Initial DCBF
 ```bash
-./scripts/run_train.sh --help
-./scripts/run_train.sh --config configs/train.yaml
+sh scripts/run_train.sh --help
+sh scripts/run_train.sh --config configs/train.yaml
 ```
 产物：
 - `outputs/train/initial_dcbf/best.pt`
@@ -65,18 +86,18 @@ python3 -m dcbf.data.collect stats --data_glob "outputs/data/train_*.npz"
 
 ### Step F: Refinement + Finetune
 ```bash
-./scripts/run_refine.sh --help
-./scripts/run_refine.sh --config configs/refine.yaml
+sh scripts/run_refine.sh --help
+sh scripts/run_refine.sh --config configs/refine.yaml
 ```
 产物：
 - `outputs/refine/refined_data/refined_*.npz`
 - `outputs/refine/refined_dcbf/best.pt`
 - `outputs/refine/refine_summary.json`
 
-### Step G: 评估与作图（N=10/20/40）
+### Step G: 评估与作图（N=4/10/20/40）
 ```bash
-./scripts/run_eval.sh --help
-./scripts/run_eval.sh --config configs/eval.yaml
+sh scripts/run_eval.sh --help
+sh scripts/run_eval.sh --config configs/eval.yaml
 ```
 产物：
 - `outputs/eval/metrics.csv`
@@ -85,9 +106,9 @@ python3 -m dcbf.data.collect stats --data_glob "outputs/data/train_*.npz"
 
 ### Rollout（单方法快速检查）
 ```bash
-./scripts/run_rollout.sh --help
-./scripts/run_rollout.sh --method do_nothing
-./scripts/run_rollout.sh --method initial_dcbf --checkpoint outputs/train/initial_dcbf/best.pt
+sh scripts/run_rollout.sh --help
+sh scripts/run_rollout.sh --method do_nothing
+sh scripts/run_rollout.sh --method initial_dcbf --checkpoint outputs/train/initial_dcbf/best.pt
 ```
 
 ---
@@ -95,31 +116,31 @@ python3 -m dcbf.data.collect stats --data_glob "outputs/data/train_*.npz"
 ## 3) 与论文公式/模块对应
 
 ### 3.1 Object-centric barrier
-- 单物体 barrier：`B_i(r_{t+1}^i, O_t^i)`  
-- 全局 barrier：`B_global = min_i B_i`  
+- 单物体 barrier：$B_i(r_{t+1}^i, O_t^i)$  
+- 全局 barrier：$B_{\text{global}} = \min_i B_i$  
 对应代码：
 - `dcbf/models/dcbf_net.py`
 - `dcbf/safety/compose.py`
 
 ### 3.2 在线 safety filter（最小扰动）
-给定 nominal 动作 `u_nom`：
-1. 若 `B_global(next(u_nom)) >= 0`，直接执行  
-2. 否则在 `u_nom` 周围采样 K 个候选，筛选安全集合  
-3. 选取 `||u - u_nom||` 最小的安全动作  
+给定 nominal 动作 $u_{\text{nom}}$：
+1. 若 $B_{\text{global}}(\text{next}(u_{\text{nom}})) \ge 0$，直接执行  
+2. 否则在 $u_{\text{nom}}$ 周围采样 $K$ 个候选，筛选安全集合  
+3. 选取 $\lVert u-u_{\text{nom}} \rVert$ 最小的安全动作  
 对应代码：
 - `dcbf/safety/filter.py`
 
 ### 3.3 三项训练损失
 在 `dcbf/training/losses.py` 实现：
-- `L_s = mean(ReLU(-B))`（safe 样本应满足 `B>=0`）
-- `L_u = mean(ReLU(B))`（unsafe 样本应满足 `B<0`）
-- `L_d = mean(ReLU((1-gamma)*B_t - B_{t+1} + sigma))`（离散不变性约束）
-- `L = eta_s L_s + eta_u L_u + eta_d L_d`
+- $L_s = \operatorname{mean}(\operatorname{ReLU}(-B))$（safe 样本应满足 $B \ge 0$）
+- $L_u = \operatorname{mean}(\operatorname{ReLU}(B))$（unsafe 样本应满足 $B < 0$）
+- $L_d = \operatorname{mean}(\operatorname{ReLU}((1-\gamma)B_t - B_{t+1} + \sigma))$（离散不变性约束）
+- $L = \eta_s L_s + \eta_u L_u + \eta_d L_d$
 
 ### 3.4 Refinement
-1. 选 near-boundary：`|B| <= delta`  
+1. 选 near-boundary：$|B| \le \delta$  
 2. 从 snapshot 恢复场景  
-3. 每步采样动作并选 `argmax_u B_global(next(u))` rollout `s` 步  
+3. 每步采样动作并选 $\arg\max_u B_{\text{global}}(\text{next}(u))$ rollout $s$ 步  
 4. 追加新数据后 finetune  
 对应代码：
 - `dcbf/refinement/refine.py`
@@ -129,7 +150,7 @@ python3 -m dcbf.data.collect stats --data_glob "outputs/data/train_*.npz"
 ## 4) 数据定义（Step C）
 
 每个对象 i 的样本：
-- 输入对：`(r_i^t, O_i^{t-1})` 与 `(r_i^{t+1}, O_i^t)`
+- 输入对：$(r_i^t, O_i^{t-1})$ 与 $(r_i^{t+1}, O_i^t)$
 - 标签：`label_safe_obj`（默认）与 `label_safe_global`（可切换）
 - snapshot：`snap_ee/snap_goal/snap_object_pos/snap_object_tilt_rad/...`
 

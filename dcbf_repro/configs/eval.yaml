@@ -5,7 +5,7 @@ methods:
   - apf
   - initial_dcbf
   - refined_dcbf
-num_objects_list: [10, 20, 40]
+num_objects_list: [4, 10, 20, 40]
 episodes_per_setting: 50
 output_dir: outputs/eval
 initial_checkpoint: outputs/train/initial_dcbf/best.pt

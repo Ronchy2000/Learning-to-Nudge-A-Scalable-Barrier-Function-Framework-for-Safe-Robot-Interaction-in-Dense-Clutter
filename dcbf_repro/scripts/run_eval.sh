@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env sh
+set -eu
 
 cd "$(dirname "$0")/.."
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
   python3 -m dcbf.eval.evaluate --help
   exit 0
 fi
