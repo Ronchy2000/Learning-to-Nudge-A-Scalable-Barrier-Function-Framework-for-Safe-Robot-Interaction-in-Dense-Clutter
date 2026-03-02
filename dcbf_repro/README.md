@@ -1,216 +1,138 @@
-# DCBF Reproduction (MVP → Full Pipeline)
+# DCBF 复现工程
 
-本工程是论文 **Dense Contact Barrier Functions (DCBF)** 的可复现最小实现，目标是先跑通核心 pipeline，再逐步替换为真实 IsaacLab/Isaac Sim 场景。
+本仓库实现了论文 _Learning to Nudge: A Scalable Barrier Function Framework for Safe Robot Interaction in Dense Clutter_ (ICRA 2026) 中 Dense Contact Barrier Functions (DCBF) 的核心 pipeline。
 
-> 当前仓库默认使用 `mock` 后端（可离线跑通 collect/train/refine/eval）；`isaaclab` 后端已在 `dcbf/envs/isaaclab_env.py` 留出 TODO 接口，便于你在服务器替换为真实仿真 API。
+当前默认使用 mock 物理后端，可在纯 CPU 环境下完整跑通 collect → train → refine → eval 全链路。`dcbf/envs/isaaclab_env.py` 中保留了 IsaacLab 接口的 TODO，方便后续对接真实仿真器。
 
----
+## 目录结构
 
-## 1) 安装与目录
+```
+configs/             环境、训练、refinement、评估配置
+dcbf/
+  envs/              Panda arm + 圆柱瓶子 mock 环境
+  data/              轨迹采集、object-centric 变换、标签
+  models/            LSTM + MLP → 单物体 barrier 值 B_i
+  training/          三项 loss + 训练循环
+  safety/            B_global = min_i B_i + 在线采样 safety filter
+  refinement/        near-boundary 筛选 + safest-action rollout + finetune
+  eval/              多方法评估 + 结果作图
+  utils/             几何变换、IO、日志、seed 管理
+scripts/             一键运行脚本
+docs/                详细流程文档
+```
+
+## 安装
 
 ```bash
 cd dcbf_repro
-python3 -m venv .venv
-source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-如果要切换到真实 IsaacLab/Isaac Sim，请额外按官方文档安装对应版本（该部分通常不在 `pip requirements.txt` 内，且与 GPU/驱动强绑定）。
+> 如果使用 conda，激活对应环境后再 pip install。
+> IsaacLab/Isaac Sim 需按官方文档额外安装，与本仓库的 pip 依赖无关。
 
-核心结构（与需求对齐）：
+## 快速开始
 
-- `configs/*.yaml`: 环境、训练、refine、评估配置
-- `dcbf/envs`: Panda 平面控制 + clutter cylinders + safety/stall 判据
-- `dcbf/data`: 采集、object-centric 数据转换、label
-- `dcbf/models`: `LSTM + MLP -> scalar B_i`
-- `dcbf/training`: 三项 loss + 训练入口 + checkpoint/tensorboard
-- `dcbf/safety`: `B_global = min_i B_i` + 在线采样 safety filter
-- `dcbf/refinement`: near-boundary 样本筛选 + 最安全动作 rollout + finetune
-- `dcbf/eval`: 指标评估 + 作图
-- `scripts`: 一键运行脚本
+最简三步：采集 → 训练 → 评估。
 
----
-
-## 2) 快速运行命令
-
-说明：所有 `run_*.sh` 都会自动使用当前时间创建输出目录（无需手动 `export` 时间戳）。
-
-### Step A: 环境自检
 ```bash
-python3 scripts/make_env_check.py --config configs/env.yaml --help
-python3 scripts/make_env_check.py --config configs/env.yaml
-```
-产物：
-- `outputs/env_check/env_check_steps.csv`
-- `outputs/env_check/summary.json`
+# 1. 采集 1200 条轨迹 (4 objects)
+sh scripts/run_collect.sh --num_objects 4 --num_traj 1200
 
-### Step B/C: 采集数据（含 nominal/filter/back-stepping）
-```bash
-sh scripts/run_collect.sh --help
-sh scripts/run_collect.sh --num_traj 200 --policy do_nothing --use_filter
-python3 -m dcbf.data.collect stats --data_glob "outputs/data/*/train_*.npz"
-```
-产物：
-- `outputs/data/<timestamp>/train_*.npz`, `outputs/data/<timestamp>/val_*.npz`
-- `outputs/data/<timestamp>/collect_summary.json`
-- `outputs/data/LATEST_RUN`（记录最近一次采集目录）
+# 2. 训练
+sh scripts/run_train.sh
 
-### 论文同款优先配置（默认配置）
-```bash
-# 1) 用 4 个物体采集初始数据（对应论文训练设定）
-sh scripts/run_collect.sh \
-  --config configs/env.yaml \
-  --num_objects 4 \
-  --num_traj 1200 \
-  --policy do_nothing \
-  --use_filter
-
-# 2) 训练 Initial DCBF
-sh scripts/run_train.sh --config configs/train.yaml
-
-# 3) Refinement（s=4）
-sh scripts/run_refine.sh --config configs/refine.yaml
-
-# 4) 评估（4/10/20/40）
-sh scripts/run_eval.sh --config configs/eval.yaml
+# 3. 评估（含作图）
+sh scripts/run_eval.sh
 ```
 
-### Step D: 训练 Initial DCBF
-```bash
-sh scripts/run_train.sh --help
-sh scripts/run_train.sh --config configs/train.yaml
-```
-产物：
-- `outputs/train/initial_dcbf_<timestamp>/best.pt`
-- `outputs/train/initial_dcbf_<timestamp>/metrics.csv`
-- `outputs/train/LATEST_RUN`（记录最近一次训练目录）
-- `outputs/train/LATEST_CKPT`（记录最近一次训练 best checkpoint）
+每个脚本启动时自动创建带时间戳的输出目录，同时写入 `LATEST_RUN` / `LATEST_CKPT` 指针文件，后续脚本自动读取，不需要手动拼路径。
 
-说明：若服务器上 `tensorboard/protobuf` 版本冲突，训练会自动退化为仅写 `csv/jsonl`（不会中断训练）。
+完整的分步指南（包含 refinement、两个 σ 值对比、全部 6 种方法评估）见 [docs/full_pipeline_commands.md](docs/full_pipeline_commands.md)。
 
-论文中常比较 $\sigma=0.01$ 与 $\sigma=0.02$，可直接跑两次：
-```bash
-sh scripts/run_train.sh --config configs/train.yaml --sigma 0.01 --run_name ours_sigma_001_$(date +%Y%m%d_%H%M%S)
-sh scripts/run_train.sh --config configs/train.yaml --sigma 0.02 --run_name ours_sigma_002_$(date +%Y%m%d_%H%M%S)
-```
-其中 $\sigma$ 在离散 CBF 约束 $L_d$ 中控制安全裕度，通常更大 $\sigma$ 更保守。
+## 与论文的对应关系
 
-论文式比较两条 Ours（$\sigma=0.01$ vs $\sigma=0.02$）：
-```bash
-# 假设你已训练出两个 best.pt
-#   outputs/train/ours_sigma_001_xxx/best.pt
-#   outputs/train/ours_sigma_002_xxx/best.pt
+### 网络结构
 
-sh scripts/run_eval.sh \
-  --config configs/eval.yaml \
-  --methods do_nothing apf ours_sigma_001 ours_sigma_002 \
-  --learned_method ours_sigma_001=outputs/train/ours_sigma_001_xxx/best.pt \
-  --learned_method ours_sigma_002=outputs/train/ours_sigma_002_xxx/best.pt \
-  --num_objects_list 4 10 20 40 \
-  --episodes 100
-```
+单物体 barrier $B_i(r^{t+1}_i,\, O^t_i)$ 的计算流程：
 
-### Step F: Refinement + Finetune
-```bash
-sh scripts/run_refine.sh --help
-sh scripts/run_refine.sh --config configs/refine.yaml
-```
-产物：
-- `outputs/refine/<timestamp>/refined_data/refined_*.npz`
-- `outputs/refine/<timestamp>/refined_dcbf_<timestamp>/best.pt`
-- `outputs/refine/LATEST_RUN`（记录最近一次 refine 目录）
-- `outputs/refine/LATEST_CKPT`（记录最近一次 refine best checkpoint）
+1. LSTM 编码物体历史 $O^t_i = \{o^{t-T}_i, \ldots, o^t_i\}$，输出末时刻隐状态
+2. MLP 编码 object-centric 机器人状态 $r^{t+1}_i$
+3. 两路拼接后再接一个 MLP → 标量 barrier 值
 
-### Step G: 评估与作图（N=4/10/20/40）
-```bash
-sh scripts/run_eval.sh --help
-sh scripts/run_eval.sh --config configs/eval.yaml
-```
-产物：
-- `outputs/eval/<timestamp>/metrics.csv`
-- `outputs/eval/<timestamp>/episodes.csv`
-- `outputs/eval/<timestamp>/metrics_plot.png`（grouped bar chart）
-- `outputs/eval/LATEST_RUN`（记录最近一次评估目录）
+全局 barrier：$B_{\text{global}} = \min_i B_i$
 
-### Rollout（单方法快速检查）
-```bash
-sh scripts/run_rollout.sh --help
-sh scripts/run_rollout.sh --method do_nothing
-sh scripts/run_rollout.sh --method initial_dcbf --checkpoint outputs/train/initial_dcbf/best.pt
-```
+代码位置：`dcbf/models/dcbf_net.py`、`dcbf/safety/compose.py`
 
----
+### 训练损失（论文 Eq. 8–11）
 
-## 3) 与论文公式/模块对应
+$$L = \eta_s L_s + \eta_u L_u + \eta_d L_d$$
 
-### 3.1 Object-centric barrier
-- 单物体 barrier：$B_i(r_{t+1}^i, O_t^i)$  
-- 全局 barrier：$B_{\text{global}} = \min_i B_i$  
-对应代码：
-- `dcbf/models/dcbf_net.py`
-- `dcbf/safety/compose.py`
+| 分量 | 含义 |
+|------|------|
+| $L_s = \operatorname{mean}(\operatorname{ReLU}(-B_t))$ | safe 样本的 barrier 应 ≥ 0 |
+| $L_u = \operatorname{mean}(\operatorname{ReLU}(B_t))$ | unsafe 样本的 barrier 应 < 0 |
+| $L_d = \operatorname{mean}(\operatorname{ReLU}((1-\gamma)B_t - B_{t+1} + \sigma))$ | 离散 CBF 不变性约束 |
 
-### 3.2 在线 safety filter（最小扰动）
-给定 nominal 动作 $u_{\text{nom}}$：
-1. 若 $B_{\text{global}}(\text{next}(u_{\text{nom}})) \ge 0$，直接执行  
-2. 否则在 $u_{\text{nom}}$ 周围采样 $K$ 个候选，筛选安全集合  
-3. 选取 $\lVert u-u_{\text{nom}} \rVert$ 最小的安全动作  
-对应代码：
-- `dcbf/safety/filter.py`
+代码位置：`dcbf/training/losses.py`
 
-### 3.3 三项训练损失
-在 `dcbf/training/losses.py` 实现：
-- $L_s = mean(ReLU(-B))$（safe 样本应满足 $B \ge 0$）
-- $L_u = mean(ReLU(B))$（unsafe 样本应满足 $B < 0$）
-- $L_d = mean(ReLU((1-\gamma)B_t - B_{t+1} + \sigma))$（离散不变性约束）
-- $L = \eta_s L_s + \eta_u L_u + \eta_d L_d$
+### 在线 Safety Filter
 
-### 3.4 Refinement
-1. 选 near-boundary：$|B| \le \delta$  
-2. 从 snapshot 恢复场景  
-3. 每步采样动作并选 $\arg\max_u B_{\text{global}}(\text{next}(u))$ rollout $s$ 步  
-4. 追加新数据后 finetune  
-对应代码：
-- `dcbf/refinement/refine.py`
+给定 nominal 动作 $u_\text{nom}$：
+- 若 $B_\text{global}(\text{next}(u_\text{nom})) \ge 0$，直接执行
+- 否则在 $u_\text{nom}$ 附近采样 $K$ 个候选，从中选取安全且偏移最小的动作
 
----
+代码位置：`dcbf/safety/filter.py`
 
-## 4) 数据定义（Step C）
+### Refinement
 
-每个对象 i 的样本：
-- 输入对：$(r_i^t, O_i^{t-1})$ 与 $(r_i^{t+1}, O_i^t)$
-- 标签：`label_safe_obj`（默认）与 `label_safe_global`（可切换）
-- snapshot：`snap_ee/snap_goal/snap_object_pos/snap_object_tilt_rad/...`
+1. 从训练数据中选取 near-boundary 样本（$|B| \le \delta$）
+2. 从 snapshot 恢复场景，每步选最安全动作 rollout $s$ 步
+3. 新生成的数据与原始数据合并后 finetune 模型
 
-object-centric 变换 `R(·)` 在：
-- `dcbf/utils/geometry.py`
+代码位置：`dcbf/refinement/refine.py`
 
----
+### Object-centric 变换
 
-## 5) 指标定义（Step G）
+以物体最早历史帧 $o^{t-T}_i$ 为锚点做平移对齐，代码在 `dcbf/utils/geometry.py`。
 
-每个方法 × 每个 clutter N：
-- `success_rate`: 到达目标且无违规
-- `violation_rate`: 任意瓶倾角 `>15°`
-- `stalling_rate`: 触发 stall 判据
-- `avg_episode_steps`: episode 步长均值
+## 评估方法（论文 6 种）
 
----
+| 方法 | 说明 |
+|------|------|
+| Do Nothing | 直线走向目标，不做避障 |
+| Backstep | 倾斜超过 14° 时沿接触方向后退 |
+| APF | 人工势场 (KP=5.0, η=50.0, influence_dist=1.2m) |
+| Initial Model | Refinement 之前的 NCBF |
+| Ours σ=0.01 | Refined DCBF，σ=0.01 |
+| Ours σ=0.02 | Refined DCBF，σ=0.02 |
 
-## 6) 已知简化/偏差（当前 MVP）
+评估在 4 / 10 / 20 / 40 个物体的场景中各跑 100 episodes，输出 success rate、violation rate、stalling rate、平均步数四个指标和对应的 bar chart。
 
-1. **默认后端是 mock**：不是 IsaacLab 真实接触动力学；但接口、数据流和训练流程与论文一致。  
-2. **object-centric R(·) 当前用平移对齐**：未使用完整姿态旋转对齐。  
-3. **label 默认以每物体安全为主**，同时保留 `label_safe_global`，可在训练配置切换。  
-4. **snapshot 恢复为轻量状态恢复**（位置/倾角/机器人状态），未包含完整物理引擎内部状态。  
-5. **refinement rollout 使用动作采样近似 argmax**（工程可扩展为优化器/CEM）。
+## 数据格式
 
----
+每个 `.npz` 文件包含若干 object-centric 样本：
 
-## 7) 下一步增强建议
+- 输入：$(r_i^t, O_i^{t-1})$ 和 $(r_i^{t+1}, O_i^t)$
+- 标签：`label_safe_obj`（单物体安全）、`label_safe_global`（全局安全）
+- Snapshot 字段：`snap_ee` / `snap_goal` / `snap_object_pos` / `snap_object_tilt_rad` 等，用于 refinement 恢复
 
-1. 在 `isaaclab_env.py` 实现真实 IsaacLab Task/Scene 接口，保留当前观测与动作 schema。  
-2. 用真实机器人前向运动学替换 `next_state` 简化积分。  
-3. 增强 snapshot（含关节速度/接触状态）以提高 refinement 重放一致性。  
-4. 加入更系统的 APF 与更多 baseline。  
-5. 扩展为并行环境采集与多 GPU 训练。
+## 关键超参
+
+| 参数 | 值 | 说明 |
+|------|----|------|
+| object_radius | 0.05 m | 瓶子半径 |
+| object_height | 0.20 m | 瓶子高度 |
+| tilt_threshold | 15° | 安全/不安全判据 |
+| max_action_step | 0.01 m | 每步最大位移 |
+| mass_range | [1.3, 2.0] kg | 随机质量 |
+| gamma | 0.98 | CBF 衰减率 |
+| sigma | 0.01 / 0.02 | 安全裕度 |
+| history_len | 10 | 历史窗口长度 T |
+
+## 当前局限
+
+- mock 后端不涉及真实接触动力学，但数据流、训练、评估逻辑与论文一致
+- object-centric 变换仅用平移对齐，未做姿态旋转
+- snapshot 恢复是轻量级状态恢复（位置 / 倾角 / EE），不含物理引擎内部状态
+- refinement 用采样近似 argmax，后续可替换为 CEM 或梯度优化

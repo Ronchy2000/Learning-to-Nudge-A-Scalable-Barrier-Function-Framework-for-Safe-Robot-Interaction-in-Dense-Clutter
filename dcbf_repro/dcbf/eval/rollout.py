@@ -12,7 +12,7 @@ from dcbf.utils.seeding import set_seed
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run quick rollout and save metrics JSON.")
     parser.add_argument("--env_config", type=str, default="configs/env.yaml")
-    parser.add_argument("--method", type=str, default="do_nothing", choices=["do_nothing", "apf", "initial_dcbf", "refined_dcbf"])
+    parser.add_argument("--method", type=str, default="do_nothing", choices=["do_nothing", "backstep", "apf", "initial_dcbf", "refined_dcbf"])
     parser.add_argument("--checkpoint", type=str, default="")
     parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--output", type=str, default="outputs/eval/rollout_summary.json")

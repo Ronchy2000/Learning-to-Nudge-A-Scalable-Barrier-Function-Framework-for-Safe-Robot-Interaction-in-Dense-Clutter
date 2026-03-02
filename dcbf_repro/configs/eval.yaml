@@ -2,6 +2,7 @@ seed: 7
 env_config: configs/env.yaml
 methods:
   - do_nothing
+  - backstep
   - apf
   - initial_dcbf
   - refined_dcbf

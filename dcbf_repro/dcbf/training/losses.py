@@ -40,8 +40,11 @@ def compute_dcbf_losses(
     safe_mask = safe_label > 0.5
     unsafe_mask = ~safe_mask
 
-    l_s = masked_relu_mean(-b_tp1, safe_mask)
-    l_u = masked_relu_mean(b_tp1, unsafe_mask)
+    # Paper Eq.8: L_s penalises -B(r^t, O^{t-1}) on safe transitions (enforce b_t >= 0)
+    # Paper Eq.9: L_u penalises  B(r^t, O^{t-1}) on unsafe transitions (enforce b_t <= 0)
+    l_s = masked_relu_mean(-b_t, safe_mask)
+    l_u = masked_relu_mean(b_t, unsafe_mask)
+    # Paper Eq.10: discrete CBF decrease condition
     drift_term = (1.0 - cfg.gamma) * b_t - b_tp1 + cfg.sigma
     l_d = torch.relu(drift_term).mean()
 

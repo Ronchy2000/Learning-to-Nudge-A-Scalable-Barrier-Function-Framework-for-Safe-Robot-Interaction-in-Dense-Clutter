@@ -1,17 +1,46 @@
-# DCBF 全流程命令（collect → train → refine → eval）
+# 全流程复现手册
 
-## 0) 进入项目
+从零开始到拿到论文 Fig.3 / Fig.4 风格的评估图表，一共 9 步。
+所有命令在同一个终端窗口里顺序执行，变量会在步骤之间传递。
+
+## 前置条件
+
+- macOS / Linux，已安装 Anaconda3
+- conda 环境名 `MARL`（按你的实际环境改）
+- 已安装 `requirements.txt` 中的依赖
+
+---
+
+## Step 0. 准备
 
 ```bash
+conda activate MARL
 cd dcbf_repro
 ```
 
-## 1) 数据采集（4 objects，偏高交互）
+---
+
+## Step 1. 环境检查（可选）
+
+跑几轮随机动作，确认环境能正常产生碰撞和倾斜。
+
+```bash
+python scripts/make_env_check.py --resets 50 --steps 30
+cat outputs/env_check/summary.json
+```
+
+看到 `violation_rate > 0` 就说明环境没问题。
+
+---
+
+## Step 2. 采集数据
+
+论文用 4 个物体采 1200 条轨迹。这里把桌面调小一点、倾斜增益调大，让交互更密集：
 
 ```bash
 sh scripts/run_collect.sh \
   --num_objects 4 \
-  --num_traj 2500 \
+  --num_traj 1200 \
   --policy do_nothing \
   --table_half_extent 0.20 \
   --contact_distance 0.10 \
@@ -19,100 +48,169 @@ sh scripts/run_collect.sh \
   --tilt_decay 0.0003 \
   --goal_tolerance 0.005 \
   --max_episode_steps 300 \
-  --backstep_margin_deg 0.2
+  --backstep_margin_deg 1.0
 ```
 
-## 2) 检查采集分布（确认非全 safe）
+采完之后看一下数据分布：
 
 ```bash
 LATEST_DATA="$(cat outputs/data/LATEST_RUN)"
-python3 -m dcbf.data.collect stats \
+echo "数据目录: ${LATEST_DATA}"
+
+python -m dcbf.data.collect stats \
   --data_glob "${LATEST_DATA}/train_*.npz" \
   --output_json "${LATEST_DATA}/stats.json"
+
 cat "${LATEST_DATA}/stats.json"
 ```
 
-## 3) 训练 Ours σ=0.01（Initial）
+`unsafe_ratio_object` 应该 > 0.05。如果全是 safe，把 `tilt_gain` 再调大或 `table_half_extent` 再调小，重新采一遍。
+
+---
+
+## Step 3. 训练 σ=0.01
 
 ```bash
-RUN_001="ours_sigma_001_$(date +%Y%m%d_%H%M%S)"
+RUN_001="ours_sigma_001"
+
 sh scripts/run_train.sh \
-  --config configs/train.yaml \
   --sigma 0.01 \
   --run_name "${RUN_001}"
+
 CKPT_001_INIT="outputs/train/${RUN_001}/best.pt"
-echo "${CKPT_001_INIT}"
+if [ ! -f "${CKPT_001_INIT}" ]; then
+  CKPT_001_INIT="outputs/train/${RUN_001}/latest.pt"
+fi
+echo "σ=0.01 checkpoint: ${CKPT_001_INIT}"
 ```
 
-## 4) Refinement（σ=0.01）
+---
+
+## Step 4. Refinement σ=0.01
 
 ```bash
-REFINE_001_TS="$(date +%Y%m%d_%H%M%S)"
 sh scripts/run_refine.sh \
-  --config configs/refine.yaml \
   --checkpoint "${CKPT_001_INIT}" \
   --dataset_glob "${LATEST_DATA}/train_*.npz" \
-  --output_dir "outputs/refine/${REFINE_001_TS}" \
-  --run_name "refined_sigma_001_${REFINE_001_TS}"
-CKPT_001_REFINED="outputs/refine/${REFINE_001_TS}/refined_sigma_001_${REFINE_001_TS}/best.pt"
-echo "${CKPT_001_REFINED}"
+  --output_dir "outputs/refine/sigma_001" \
+  --run_name "refined_sigma_001"
+
+CKPT_001_REFINED="$(find outputs/refine/sigma_001 -name best.pt | sort | tail -1)"
+if [ -z "${CKPT_001_REFINED}" ]; then
+  CKPT_001_REFINED="$(find outputs/refine/sigma_001 -name latest.pt | sort | tail -1)"
+fi
+echo "σ=0.01 refined: ${CKPT_001_REFINED}"
 ```
 
-## 5) 训练 Ours σ=0.02（Initial）
+---
+
+## Step 5. 训练 σ=0.02
 
 ```bash
-RUN_002="ours_sigma_002_$(date +%Y%m%d_%H%M%S)"
+RUN_002="ours_sigma_002"
+
 sh scripts/run_train.sh \
-  --config configs/train.yaml \
   --sigma 0.02 \
   --run_name "${RUN_002}"
+
 CKPT_002_INIT="outputs/train/${RUN_002}/best.pt"
-echo "${CKPT_002_INIT}"
+if [ ! -f "${CKPT_002_INIT}" ]; then
+  CKPT_002_INIT="outputs/train/${RUN_002}/latest.pt"
+fi
+echo "σ=0.02 checkpoint: ${CKPT_002_INIT}"
 ```
 
-## 6) Refinement（σ=0.02）
+---
+
+## Step 6. Refinement σ=0.02
 
 ```bash
-REFINE_002_TS="$(date +%Y%m%d_%H%M%S)"
 sh scripts/run_refine.sh \
-  --config configs/refine.yaml \
   --checkpoint "${CKPT_002_INIT}" \
   --dataset_glob "${LATEST_DATA}/train_*.npz" \
-  --output_dir "outputs/refine/${REFINE_002_TS}" \
-  --run_name "refined_sigma_002_${REFINE_002_TS}"
-CKPT_002_REFINED="outputs/refine/${REFINE_002_TS}/refined_sigma_002_${REFINE_002_TS}/best.pt"
-echo "${CKPT_002_REFINED}"
+  --output_dir "outputs/refine/sigma_002" \
+  --run_name "refined_sigma_002"
+
+CKPT_002_REFINED="$(find outputs/refine/sigma_002 -name best.pt | sort | tail -1)"
+if [ -z "${CKPT_002_REFINED}" ]; then
+  CKPT_002_REFINED="$(find outputs/refine/sigma_002 -name latest.pt | sort | tail -1)"
+fi
+echo "σ=0.02 refined: ${CKPT_002_REFINED}"
 ```
 
-## 7) 论文式评估：Do Nothing / APF / Ours σ=0.01 / Ours σ=0.02
+---
+
+## Step 7. 全量评估
+
+6 种方法 × 4 种密度（4/10/20/40 objects）× 100 episodes：
 
 ```bash
 sh scripts/run_eval.sh \
-  --config configs/eval.yaml \
-  --methods do_nothing apf ours_sigma_001 ours_sigma_002 \
-  --learned_method ours_sigma_001="${CKPT_001_REFINED}" \
-  --learned_method ours_sigma_002="${CKPT_002_REFINED}" \
+  --methods do_nothing backstep apf initial_dcbf ours_sigma_001 ours_sigma_002 \
+  --learned_method "initial_dcbf=${CKPT_001_INIT}" \
+  --learned_method "ours_sigma_001=${CKPT_001_REFINED}" \
+  --learned_method "ours_sigma_002=${CKPT_002_REFINED}" \
   --num_objects_list 4 10 20 40 \
   --episodes 100
 ```
 
-## 8) 查看评估输出
+`--learned_method` 把方法名映射到对应的 checkpoint，会覆盖 `eval.yaml` 中的默认路径。
+
+---
+
+## Step 8. 查看结果
 
 ```bash
 EVAL_DIR="$(cat outputs/eval/LATEST_RUN)"
-echo "${EVAL_DIR}"
-cat "${EVAL_DIR}/metrics.csv"
-ls -lah "${EVAL_DIR}/metrics_plot.png"
+
+# 终端里看表格
+column -t -s, "${EVAL_DIR}/metrics.csv"
+
+# 打开图片（macOS）
+open "${EVAL_DIR}/metrics_plot.png"
 ```
 
-## 9) 可选：评估 Initial vs Refined（单个 σ）
+最终的 `metrics_plot.png` 包含 4 个子图：Success Rate / Violation Rate / Stalling Rate / Avg Episode Steps，与论文 Fig.3 & Fig.4 对应。
+
+---
+
+## （可选）Single-σ 消融：Initial vs Refined
+
+只想看 refinement 前后效果对比：
 
 ```bash
 sh scripts/run_eval.sh \
-  --config configs/eval.yaml \
-  --methods do_nothing apf initial_dcbf refined_dcbf \
+  --methods do_nothing backstep apf initial_dcbf refined_dcbf \
   --initial_checkpoint "${CKPT_001_INIT}" \
   --refined_checkpoint "${CKPT_001_REFINED}" \
   --num_objects_list 4 10 20 40 \
   --episodes 100
+
+open "$(cat outputs/eval/LATEST_RUN)/metrics_plot.png"
 ```
+
+---
+
+## 方法参数对照表
+
+| 论文中的名字 | `--methods` 里写 | 说明 |
+|---|---|---|
+| Do Nothing | `do_nothing` | 直线奔向目标，不避障 |
+| Back-stepping | `backstep` | 倾斜超 14° 时后退一步 |
+| APF | `apf` | 人工势场 (KP=5, η=50, 作用距离 1.2m) |
+| Initial Model | `initial_dcbf` | refinement 前的 NCBF |
+| Ours σ=0.01 | `ours_sigma_001` | refined DCBF, σ=0.01 |
+| Ours σ=0.02 | `ours_sigma_002` | refined DCBF, σ=0.02 |
+
+## 关键超参
+
+| 参数 | 值 | 意义 |
+|---|---|---|
+| object_radius | 0.05 m | 瓶子半径 |
+| object_height | 0.20 m | 瓶子高度 |
+| tilt_threshold | 15° | 安全/不安全的判据 |
+| max_action_step | 0.01 m | 一步最多走 1 cm |
+| mass_range | [1.3, 2.0] kg | 每瓶随机质量 |
+| gamma | 0.98 | CBF 衰减率 |
+| sigma | 0.01 or 0.02 | 安全裕度 |
+| history_len | 10 | 历史窗口 T |

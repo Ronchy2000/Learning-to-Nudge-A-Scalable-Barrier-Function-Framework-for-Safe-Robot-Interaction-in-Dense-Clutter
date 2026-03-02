@@ -252,10 +252,16 @@ def main() -> None:
 
     original_train_files = dataset_files
     val_glob = train_cfg["data"].get("val_glob")
+    val_files: List[str] = []
     if val_glob:
         val_files = sorted(glob.glob(val_glob))
-    else:
-        val_files = original_train_files
+    # If val_glob matched nothing, infer val files from the same directory as dataset_glob
+    if not val_files and original_train_files:
+        data_dir = Path(original_train_files[0]).parent
+        val_files = sorted(str(p) for p in data_dir.glob("val_*.npz"))
+    # Ultimate fallback: use training files as validation
+    if not val_files:
+        val_files = list(original_train_files)
     combined_train_files = original_train_files + refined_files
 
     ft_cfg = dict(train_cfg)

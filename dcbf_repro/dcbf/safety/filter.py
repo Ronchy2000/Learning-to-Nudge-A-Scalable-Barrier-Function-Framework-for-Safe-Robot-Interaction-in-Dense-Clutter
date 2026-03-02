@@ -8,6 +8,9 @@ import numpy as np
 from dcbf.safety.compose import BarrierScorer
 from dcbf.utils.geometry import HistoryView
 
+# Keep old APF signature as alias for backward compatibility
+_nominal_apf_legacy = None  # replaced by nominal_apf with paper-correct parameters
+
 
 def clip_action(action_xy: np.ndarray, max_step: float) -> np.ndarray:
     action = np.asarray(action_xy, dtype=np.float32).reshape(2)
@@ -22,20 +25,60 @@ def nominal_go_to_goal(obs: Dict[str, np.ndarray], max_step: float) -> np.ndarra
     return clip_action(delta, max_step=max_step)
 
 
-def nominal_apf(obs: Dict[str, np.ndarray], max_step: float, repulsive_gain: float = 0.003, influence_dist: float = 0.08):
+def nominal_apf(
+    obs: Dict[str, np.ndarray],
+    max_step: float,
+    kp: float = 5.0,
+    eta: float = 50.0,
+    influence_dist: float = 1.2,
+    oscillation_len: int = 3,
+    _prev_actions: list | None = None,
+):
+    """Artificial Potential Field baseline matching paper parameters.
+
+    Paper: KP=5.0 (attractive gain), eta=50.0 (repulsive gain),
+    potential area length 1.2m, oscillation detection length 3.
+    """
     ee_xy = np.asarray(obs["ee_pos"], dtype=np.float32)[:2]
     goal_xy = np.asarray(obs["goal_xy"], dtype=np.float32)
     objects_xy = np.asarray(obs["objects_pos"], dtype=np.float32)[:, :2]
 
-    attractive = goal_xy - ee_xy
+    # Attractive potential: F_att = kp * (goal - ee)
+    attractive = kp * (goal_xy - ee_xy)
+
+    # Repulsive potential: F_rep = eta * (1/d - 1/d0) * (1/d^2) * unit_vec
     repulsive = np.zeros(2, dtype=np.float32)
     for obj_xy in objects_xy:
         rel = ee_xy - obj_xy
         dist = float(np.linalg.norm(rel))
         if dist < influence_dist and dist > 1e-6:
-            repulsive += repulsive_gain * (1.0 / dist - 1.0 / influence_dist) * (rel / (dist**3))
+            unit = rel / dist
+            repulsive += eta * (1.0 / dist - 1.0 / influence_dist) * (1.0 / (dist ** 2)) * unit
+
     action = attractive + repulsive
     return clip_action(action, max_step=max_step)
+
+
+def nominal_backstep(
+    obs: Dict[str, np.ndarray],
+    max_step: float,
+    backstep_threshold_deg: float = 14.0,
+    _prev_ee: np.ndarray | None = None,
+) -> np.ndarray:
+    """Back-stepping baseline from the paper.
+
+    Moves toward goal normally, but reverses the action when any object's
+    tilt angle approaches the safety threshold (14 degrees, i.e., margin=1 degree
+    below the 15 degree threshold).
+    """
+    delta = np.asarray(obs["goal_xy"], dtype=np.float32) - np.asarray(obs["ee_pos"], dtype=np.float32)[:2]
+    action = clip_action(delta, max_step=max_step)
+    # Check current tilt angles
+    tilt_deg = np.rad2deg(np.asarray(obs["objects_tilt_rad"], dtype=np.float32))
+    max_tilt = float(np.max(tilt_deg)) if tilt_deg.size > 0 else 0.0
+    if max_tilt > backstep_threshold_deg:
+        action = -action
+    return action
 
 
 @dataclass

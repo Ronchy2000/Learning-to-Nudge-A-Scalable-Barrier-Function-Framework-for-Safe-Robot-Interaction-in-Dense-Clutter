@@ -12,7 +12,7 @@ from tqdm import tqdm
 from dcbf.envs.isaaclab_env import EnvConfig, PandaClutterEnv
 from dcbf.models.dcbf_net import DCBFNet
 from dcbf.safety.compose import LearnedGlobalBarrier
-from dcbf.safety.filter import SamplingSafetyFilter, nominal_apf, nominal_go_to_goal
+from dcbf.safety.filter import SamplingSafetyFilter, nominal_apf, nominal_backstep, nominal_go_to_goal
 from dcbf.utils.geometry import ObservationHistoryBuffer
 from dcbf.utils.io import dump_json, load_yaml
 from dcbf.utils.seeding import set_seed
@@ -64,6 +64,8 @@ def run_episode(
         steps = step + 1
         if method == "do_nothing":
             action = nominal_go_to_goal(obs, env.cfg.max_action_step)
+        elif method == "backstep":
+            action = nominal_backstep(obs, env.cfg.max_action_step, backstep_threshold_deg=14.0)
         elif method == "apf":
             action = nominal_apf(obs, env.cfg.max_action_step)
         elif safety_filter is not None:
@@ -123,10 +125,16 @@ def main() -> None:
         cfg["refined_checkpoint"] = args.refined_checkpoint
 
     learned_methods = dict(cfg.get("learned_methods", {}))
-    if "initial_checkpoint" in cfg:
+    # CLI --initial_checkpoint / --refined_checkpoint override YAML learned_methods
+    if args.initial_checkpoint is not None:
+        learned_methods["initial_dcbf"] = cfg["initial_checkpoint"]
+    elif "initial_checkpoint" in cfg:
         learned_methods.setdefault("initial_dcbf", cfg["initial_checkpoint"])
-    if "refined_checkpoint" in cfg:
+    if args.refined_checkpoint is not None:
+        learned_methods["refined_dcbf"] = cfg["refined_checkpoint"]
+    elif "refined_checkpoint" in cfg:
         learned_methods.setdefault("refined_dcbf", cfg["refined_checkpoint"])
+    # --learned_method has highest priority (overrides everything above)
     if args.learned_method:
         for pair in args.learned_method:
             if "=" not in pair:
@@ -159,7 +167,7 @@ def main() -> None:
             hist_len, filt = load_model_and_filter(ckpt_path, filter_cfg=filter_cfg, max_step=base_env_cfg.max_action_step)
             filters[method] = filt
             history_lens[method] = hist_len
-        elif method in {"do_nothing", "apf"}:
+        elif method in {"do_nothing", "apf", "backstep"}:
             history_lens[method] = 10
             filters[method] = None
         else:
