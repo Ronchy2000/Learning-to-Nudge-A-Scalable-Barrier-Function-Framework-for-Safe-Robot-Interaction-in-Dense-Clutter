@@ -95,6 +95,21 @@ sh scripts/run_train.sh --config configs/train.yaml --sigma 0.02 --run_name ours
 ```
 其中 $\sigma$ 在离散 CBF 约束 $L_d$ 中控制安全裕度，通常更大 $\sigma$ 更保守。
 
+论文式比较两条 Ours（$\sigma=0.01$ vs $\sigma=0.02$）：
+```bash
+# 假设你已训练出两个 best.pt
+#   outputs/train/ours_sigma_001_xxx/best.pt
+#   outputs/train/ours_sigma_002_xxx/best.pt
+
+sh scripts/run_eval.sh \
+  --config configs/eval.yaml \
+  --methods do_nothing apf ours_sigma_001 ours_sigma_002 \
+  --learned_method ours_sigma_001=outputs/train/ours_sigma_001_xxx/best.pt \
+  --learned_method ours_sigma_002=outputs/train/ours_sigma_002_xxx/best.pt \
+  --num_objects_list 4 10 20 40 \
+  --episodes 100
+```
+
 ### Step F: Refinement + Finetune
 ```bash
 sh scripts/run_refine.sh --help

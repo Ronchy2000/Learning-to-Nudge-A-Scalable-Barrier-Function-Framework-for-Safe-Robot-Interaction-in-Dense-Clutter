@@ -9,13 +9,36 @@ import pandas as pd
 
 
 def method_order(df: pd.DataFrame):
-    preferred = ["do_nothing", "apf", "initial_dcbf", "refined_dcbf"]
+    preferred = [
+        "do_nothing",
+        "backstep",
+        "apf",
+        "initial_dcbf",
+        "ours_sigma_001",
+        "ours_sigma_002",
+        "refined_dcbf",
+    ]
     existing = df["method"].unique().tolist()
     ordered = [name for name in preferred if name in existing]
     for name in existing:
         if name not in ordered:
             ordered.append(name)
     return ordered
+
+
+def display_name(method: str) -> str:
+    mapping = {
+        "do_nothing": "Do Nothing",
+        "backstep": "Backstep",
+        "apf": "APF",
+        "initial_dcbf": "Initial Model",
+        "refined_dcbf": "Refined Model",
+        "ours_sigma_001": "Ours σ=0.01",
+        "ours_sigma_002": "Ours σ=0.02",
+        "ours_sigma_01": "Ours σ=0.01",
+        "ours_sigma_02": "Ours σ=0.02",
+    }
+    return mapping.get(method, method)
 
 
 def main() -> None:
@@ -52,7 +75,7 @@ def main() -> None:
             if "rate" in metric_key:
                 values = [v * 100.0 if not np.isnan(v) else v for v in values]
             offset = (idx - (len(methods) - 1) / 2.0) * width
-            bars = ax.bar(x + offset, values, width=width, label=method, alpha=0.9)
+            bars = ax.bar(x + offset, values, width=width, label=display_name(method), alpha=0.9)
             if "rate" in metric_key:
                 ax.bar_label(
                     bars,

@@ -10,6 +10,9 @@ episodes_per_setting: 50
 output_dir: outputs/eval
 initial_checkpoint: outputs/train/initial_dcbf/best.pt
 refined_checkpoint: outputs/refine/refined_dcbf/best.pt
+learned_methods:
+  initial_dcbf: outputs/train/initial_dcbf/best.pt
+  refined_dcbf: outputs/refine/refined_dcbf/best.pt
 safety_filter:
   num_candidates: 64
   noise_std: 0.003
