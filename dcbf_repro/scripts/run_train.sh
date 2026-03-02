@@ -16,3 +16,7 @@ echo "[run_train] run_name=${RUN_NAME}"
 python3 -m dcbf.training.train --config configs/train.yaml --run_name "${RUN_NAME}" "$@"
 printf '%s\n' "outputs/train/${RUN_NAME}" > outputs/train/LATEST_RUN
 echo "[run_train] latest -> $(cat outputs/train/LATEST_RUN)"
+if [ -f "outputs/train/${RUN_NAME}/best.pt" ]; then
+  printf '%s\n' "outputs/train/${RUN_NAME}/best.pt" > outputs/train/LATEST_CKPT
+  echo "[run_train] latest_ckpt -> $(cat outputs/train/LATEST_CKPT)"
+fi

@@ -82,6 +82,7 @@ sh scripts/run_train.sh --config configs/train.yaml
 - `outputs/train/initial_dcbf_<timestamp>/best.pt`
 - `outputs/train/initial_dcbf_<timestamp>/metrics.csv`
 - `outputs/train/LATEST_RUN`（记录最近一次训练目录）
+- `outputs/train/LATEST_CKPT`（记录最近一次训练 best checkpoint）
 
 说明：若服务器上 `tensorboard/protobuf` 版本冲突，训练会自动退化为仅写 `csv/jsonl`（不会中断训练）。
 
@@ -94,6 +95,7 @@ sh scripts/run_refine.sh --config configs/refine.yaml
 - `outputs/refine/<timestamp>/refined_data/refined_*.npz`
 - `outputs/refine/<timestamp>/refined_dcbf_<timestamp>/best.pt`
 - `outputs/refine/LATEST_RUN`（记录最近一次 refine 目录）
+- `outputs/refine/LATEST_CKPT`（记录最近一次 refine best checkpoint）
 
 ### Step G: 评估与作图（N=4/10/20/40）
 ```bash
@@ -103,7 +105,7 @@ sh scripts/run_eval.sh --config configs/eval.yaml
 产物：
 - `outputs/eval/<timestamp>/metrics.csv`
 - `outputs/eval/<timestamp>/episodes.csv`
-- `outputs/eval/<timestamp>/metrics_plot.png`
+- `outputs/eval/<timestamp>/metrics_plot.png`（grouped bar chart）
 - `outputs/eval/LATEST_RUN`（记录最近一次评估目录）
 
 ### Rollout（单方法快速检查）
