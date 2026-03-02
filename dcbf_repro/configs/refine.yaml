@@ -1,0 +1,15 @@
+seed: 123
+env_config: configs/env.yaml
+train_config: configs/train.yaml
+checkpoint: outputs/train/initial_dcbf/best.pt
+dataset_glob: outputs/data/train_*.npz
+output_dir: outputs/refine
+near_boundary_delta: 0.1
+max_refine_states: 400
+rollout_steps: 8
+candidate_actions: 64
+top_m_objects: 12
+finetune:
+  epochs: 10
+  lr: 0.0001
+  run_name: refined_dcbf

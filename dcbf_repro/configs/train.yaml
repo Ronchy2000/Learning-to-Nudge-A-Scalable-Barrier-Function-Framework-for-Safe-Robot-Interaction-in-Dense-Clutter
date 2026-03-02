@@ -1,0 +1,29 @@
+seed: 42
+data:
+  train_glob: outputs/data/train_*.npz
+  val_glob: outputs/data/val_*.npz
+  batch_size: 256
+  num_workers: 0
+model:
+  robot_dim: 3
+  object_dim: 4
+  history_len: 10
+  lstm_hidden: 64
+  lstm_layers: 1
+  mlp_hidden: 128
+loss:
+  gamma: 0.98
+  sigma: 0.02
+  eta_s: 1.0
+  eta_u: 1.0
+  eta_d: 0.2
+optim:
+  epochs: 30
+  lr: 0.0003
+  weight_decay: 1.0e-5
+  grad_clip: 5.0
+  device: cpu
+  save_every: 5
+logging:
+  out_dir: outputs/train
+  run_name: initial_dcbf

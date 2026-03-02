@@ -1,0 +1,17 @@
+seed: 7
+env_config: configs/env.yaml
+methods:
+  - do_nothing
+  - apf
+  - initial_dcbf
+  - refined_dcbf
+num_objects_list: [10, 20, 40]
+episodes_per_setting: 50
+output_dir: outputs/eval
+initial_checkpoint: outputs/train/initial_dcbf/best.pt
+refined_checkpoint: outputs/refine/refined_dcbf/best.pt
+safety_filter:
+  num_candidates: 64
+  noise_std: 0.003
+  top_m_objects: 12
+  fallback_scale: 0.2
