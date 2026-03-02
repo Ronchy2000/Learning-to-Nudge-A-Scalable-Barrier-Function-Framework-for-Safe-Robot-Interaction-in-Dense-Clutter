@@ -40,6 +40,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Circle
+from matplotlib.colors import TwoSlopeNorm
 
 # 项目根目录（dcbf_repro/），所有输出路径以此为基准，
 # 不受 cwd、IDE、操作系统影响。
@@ -128,27 +129,43 @@ def draw_cbf_panel(
       h > 0 (safe, 远离物体)   → 蓝色
     对应 matplotlib 'RdBu' (Red-low, Blue-high)。
     h=0 黑色虚线 = 安全集边界 (∂S)。
+
+    使用 TwoSlopeNorm(vcenter=0) 做非对称归一化：
+    将 [vmin, 0] 映射到红→白，[0, vmax] 映射到白→蓝，
+    即使正负范围不对称也能获得清晰对比度。
     """
-    vmax = max(abs(cbf_2d.min()), abs(cbf_2d.max()), 0.01)
+    vmin_data = float(cbf_2d.min())
+    vmax_data = float(cbf_2d.max())
+    # 保证 vmin < 0 < vmax 以满足 TwoSlopeNorm 要求
+    if vmin_data >= 0:
+        vmin_data = -0.01 * max(abs(vmax_data), 0.01)
+    if vmax_data <= 0:
+        vmax_data = 0.01 * max(abs(vmin_data), 0.01)
+    norm = TwoSlopeNorm(vcenter=0.0, vmin=vmin_data, vmax=vmax_data)
+
     im = ax.pcolormesh(
         xs, ys, cbf_2d,
         cmap="RdBu", shading="auto",
-        vmin=-vmax, vmax=vmax,
+        norm=norm,
     )
-    # h=0 等值线（安全/不安全分界）
-    ax.contour(
+
+    # h=0 等值线（安全/不安全分界），zorder 高于瓶子
+    cs = ax.contour(
         xs, ys, cbf_2d,
-        levels=[0.0], colors="k", linewidths=1.2, linestyles="--",
+        levels=[0.0], colors="k", linewidths=1.8, linestyles="--",
+        zorder=6,
     )
-    # 瓶子
+    ax.clabel(cs, fmt="%.1f", fontsize=7, inline=True)
+
+    # 瓶子（zorder=4，低于等值线）
     for ox, oy in object_xy:
         c = Circle(
             (ox, oy), object_radius,
             fill=True, facecolor="#E88070", edgecolor="k",
-            alpha=0.75, linewidth=0.8, zorder=5,
+            alpha=0.75, linewidth=0.8, zorder=4,
         )
         ax.add_patch(c)
-        ax.plot(ox, oy, ".", color="#C0392B", markersize=2, zorder=6)
+        ax.plot(ox, oy, ".", color="#C0392B", markersize=2, zorder=5)
 
     # EE 位置
     if ee_xy is not None:
@@ -270,6 +287,16 @@ def main():
             mc_ref["history_len"], args.device, args.batch_size,
         ).reshape(args.grid_res, args.grid_res)
 
+        # ── 诊断信息：CBF 值分布 ──
+        for tag, arr in [("Initial", cbf_init), ("Refined", cbf_ref)]:
+            pcts = np.percentile(arr, [1, 5, 25, 50, 75, 95, 99])
+            neg_frac = (arr < 0).mean() * 100
+            print(f"[{tag}] min={arr.min():.6f}  max={arr.max():.6f}  "
+                  f"neg%={neg_frac:.1f}%  "
+                  f"p1/p5/p25/p50/p75/p95/p99="
+                  f"{pcts[0]:.5f}/{pcts[1]:.5f}/{pcts[2]:.5f}/"
+                  f"{pcts[3]:.5f}/{pcts[4]:.5f}/{pcts[5]:.5f}/{pcts[6]:.5f}")
+
         fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(14, 6))
 
         im_l = draw_cbf_panel(
@@ -293,6 +320,15 @@ def main():
             model, grid_xy, object_xy, args.fixed_z,
             mc["history_len"], args.device, args.batch_size,
         ).reshape(args.grid_res, args.grid_res)
+
+        # ── 诊断信息 ──
+        pcts = np.percentile(cbf_flat, [1, 5, 25, 50, 75, 95, 99])
+        neg_frac = (cbf_flat < 0).mean() * 100
+        print(f"[CBF] min={cbf_flat.min():.6f}  max={cbf_flat.max():.6f}  "
+              f"neg%={neg_frac:.1f}%  "
+              f"p1/p5/p25/p50/p75/p95/p99="
+              f"{pcts[0]:.5f}/{pcts[1]:.5f}/{pcts[2]:.5f}/"
+              f"{pcts[3]:.5f}/{pcts[4]:.5f}/{pcts[5]:.5f}/{pcts[6]:.5f}")
 
         fig, ax = plt.subplots(1, 1, figsize=(7, 6))
         im = draw_cbf_panel(

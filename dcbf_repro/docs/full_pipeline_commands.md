@@ -167,7 +167,7 @@ echo "σ=0.02 refined: ${CKPT_002_REFINED}"
 python scripts/plot_cbf_heatmap.py \
   --checkpoint_init "${CKPT_001_INIT}" \
   --checkpoint_refined "${CKPT_001_REFINED}" \
-  --num_objects 40 --seed 42 --grid_res 200 \
+  --num_objects 20 --seed 42 --grid_res 200 \
   --output outputs/cbf_heatmap_sigma001.png
 
 open outputs/cbf_heatmap_sigma001.png
@@ -178,7 +178,7 @@ open outputs/cbf_heatmap_sigma001.png
 python scripts/plot_cbf_heatmap.py \
   --checkpoint_init "${CKPT_002_INIT}" \
   --checkpoint_refined "${CKPT_002_REFINED}" \
-  --num_objects 40 --seed 42 --grid_res 200 \
+  --num_objects 20 --seed 42 --grid_res 200 \
   --output outputs/cbf_heatmap_sigma002.png
 
 open outputs/cbf_heatmap_sigma002.png
