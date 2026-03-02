@@ -84,6 +84,8 @@ sh scripts/run_train.sh --config configs/train.yaml
 - `outputs/train/initial_dcbf/metrics.csv`
 - `outputs/train/initial_dcbf/tb/*`
 
+说明：若服务器上 `tensorboard/protobuf` 版本冲突，训练会自动退化为仅写 `csv/jsonl`（不会中断训练）。
+
 ### Step F: Refinement + Finetune
 ```bash
 sh scripts/run_refine.sh --help
@@ -132,9 +134,9 @@ sh scripts/run_rollout.sh --method initial_dcbf --checkpoint outputs/train/initi
 
 ### 3.3 三项训练损失
 在 `dcbf/training/losses.py` 实现：
-- $L_s = \operatorname{mean}(\operatorname{ReLU}(-B))$（safe 样本应满足 $B \ge 0$）
-- $L_u = \operatorname{mean}(\operatorname{ReLU}(B))$（unsafe 样本应满足 $B < 0$）
-- $L_d = \operatorname{mean}(\operatorname{ReLU}((1-\gamma)B_t - B_{t+1} + \sigma))$（离散不变性约束）
+- $L_s = mean(ReLU(-B))$（safe 样本应满足 $B \ge 0$）
+- $L_u = mean(ReLU(B))$（unsafe 样本应满足 $B < 0$）
+- $L_d = mean(ReLU((1-\gamma)B_t - B_{t+1} + \sigma))$（离散不变性约束）
 - $L = \eta_s L_s + \eta_u L_u + \eta_d L_d$
 
 ### 3.4 Refinement

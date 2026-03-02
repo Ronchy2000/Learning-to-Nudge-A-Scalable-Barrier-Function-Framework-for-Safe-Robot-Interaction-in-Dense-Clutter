@@ -5,8 +5,6 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from torch.utils.tensorboard import SummaryWriter
-
 
 class CSVLogger:
     def __init__(self, path: str | Path):
@@ -40,7 +38,21 @@ class JSONLLogger:
         self._file.close()
 
 
-def create_tb_writer(log_dir: str | Path) -> SummaryWriter:
+class NoOpSummaryWriter:
+    def add_scalar(self, *args, **kwargs) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+def create_tb_writer(log_dir: str | Path):
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    return SummaryWriter(log_dir=str(log_dir))
+    try:
+        from torch.utils.tensorboard import SummaryWriter
+
+        return SummaryWriter(log_dir=str(log_dir))
+    except Exception as exc:
+        print(f"[warn] TensorBoard disabled due to import/runtime error: {exc}")
+        return NoOpSummaryWriter()
