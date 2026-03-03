@@ -32,7 +32,7 @@ python scripts/make_env_check.py --resets 50 --steps 30
 cat outputs/env_check/summary.json
 ```
 
-看到 `violation_rate > 0` 就说明环境没问题。
+看到 `tilt_max_deg > 15` 就说明环境能产生碰撞倾斜，没问题。
 
 画物体布局图，确认不同密度下的放置效果：
 
@@ -324,8 +324,10 @@ outputs/
 ├── data/                          # Step 2 采集的数据
 │   ├── LATEST_RUN                 # 文本文件，内容为最新数据目录路径
 │   └── 20260303_143000/
-│       ├── train_0000.npz ... train_0009.npz
-│       ├── val_0000.npz
+│       ├── train_00000.npz ... train_00009.npz
+│       ├── val_00000.npz
+│       ├── collect_summary.json
+│       ├── episode_stats.csv
 │       └── stats.json
 ├── train/                         # Step 3, 5 训练产物
 │   ├── LATEST_RUN
