@@ -36,7 +36,10 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
-import torch
+try:
+    import torch
+except ModuleNotFoundError:
+    torch = None  # analytical 模式无需 torch
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -49,12 +52,17 @@ from matplotlib.colors import TwoSlopeNorm
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from dcbf.models.dcbf_net import DCBFNet
 from dcbf.envs.isaaclab_env import EnvConfig, MockPandaClutterEnv
+
+# DCBFNet 需要 torch，仅模型推理时才导入
+def _load_dcbf_net():
+    from dcbf.models.dcbf_net import DCBFNet
+    return DCBFNet
 
 
 # ── 模型加载 ──────────────────────────────────────────
-def load_model(path: str, device: str = "cpu") -> Tuple[DCBFNet, dict]:
+def load_model(path: str, device: str = "cpu"):
+    DCBFNet = _load_dcbf_net()
     ckpt = torch.load(path, map_location=device)
     mc = ckpt["config"]["model"]
     model = DCBFNet(
@@ -72,7 +80,7 @@ def load_model(path: str, device: str = "cpu") -> Tuple[DCBFNet, dict]:
 
 # ── 特征构建 & CBF 值计算 ─────────────────────────────
 def compute_cbf_grid(
-    model: DCBFNet,
+    model,
     grid_xy: np.ndarray,       # (G, 2)
     object_xy: np.ndarray,     # (N, 2)
     fixed_z: float,
@@ -150,24 +158,31 @@ def draw_cbf_panel(
 ):
     """
     论文 Fig.2 风格 colormap:
-      h < 0 (unsafe, 靠近物体) → 红色
-      h ≈ 0 (安全边界)         → 白色
-      h > 0 (safe, 远离物体)   → 蓝色
-    对应 matplotlib 'RdBu' (Red-low, Blue-high)。
-    h=0 黑色虚线 = 安全集边界 (∂S)。
+      低 CBF 值（靠近物体，危险）→ 红色 / 深红
+      高 CBF 值（远离物体，安全）→ 蓝色 / 深蓝
+    对应 matplotlib 'RdBu' (Red=low, Blue=high)。
 
-    使用 TwoSlopeNorm(vcenter=0) 做非对称归一化：
-    将 [vmin, 0] 映射到红→白，[0, vmax] 映射到白→蓝，
-    即使正负范围不对称也能获得清晰对比度。
+    归一化策略：
+      - 若数据同时含正负值 → TwoSlopeNorm(vcenter=0)，
+        红=负(unsafe)，白=零(边界)，蓝=正(safe)
+      - 若数据全正或全负   → 普通 Normalize 拉满全色域，
+        让低值=红、高值=蓝，确保梯度清晰可见
     """
+    from matplotlib.colors import Normalize
+
     vmin_data = float(cbf_2d.min())
     vmax_data = float(cbf_2d.max())
-    # 保证 vmin < 0 < vmax 以满足 TwoSlopeNorm 要求
-    if vmin_data >= 0:
-        vmin_data = -0.01 * max(abs(vmax_data), 0.01)
-    if vmax_data <= 0:
-        vmax_data = 0.01 * max(abs(vmin_data), 0.01)
-    norm = TwoSlopeNorm(vcenter=0.0, vmin=vmin_data, vmax=vmax_data)
+    has_negative = vmin_data < -1e-6
+    has_positive = vmax_data > 1e-6
+
+    if has_negative and has_positive:
+        # 典型 CBF: 负值=不安全，0=边界，正值=安全
+        norm = TwoSlopeNorm(vcenter=0.0, vmin=vmin_data, vmax=vmax_data)
+    else:
+        # 模型输出全正 / 全负时，拉满色域以显示梯度
+        span = max(abs(vmax_data - vmin_data), 1e-6)
+        norm = Normalize(vmin=vmin_data - 0.02 * span,
+                         vmax=vmax_data + 0.02 * span)
 
     im = ax.pcolormesh(
         xs, ys, cbf_2d,
@@ -175,23 +190,24 @@ def draw_cbf_panel(
         norm=norm,
     )
 
-    # h=0 等值线（安全/不安全分界），zorder 高于瓶子
-    cs = ax.contour(
-        xs, ys, cbf_2d,
-        levels=[0.0], colors="k", linewidths=1.8, linestyles="--",
-        zorder=6,
-    )
-    ax.clabel(cs, fmt="%.1f", fontsize=7, inline=True)
+    # h=0 等值线（仅在数据覆盖 0 时绘制）
+    if has_negative and has_positive:
+        cs = ax.contour(
+            xs, ys, cbf_2d,
+            levels=[0.0], colors="k", linewidths=1.8, linestyles="--",
+            zorder=6,
+        )
+        ax.clabel(cs, fmt="%.1f", fontsize=7, inline=True)
 
-    # 瓶子（zorder=4，低于等值线）
+    # 瓶子轮廓（深红色实线圈，无填充 — 让 CBF 梯度透出）
+    OBS_EDGE_COLOR = "#A01010"  # 比热力图红色稍深
     for ox, oy in object_xy:
         c = Circle(
             (ox, oy), object_radius,
-            fill=True, facecolor="#E88070", edgecolor="k",
-            alpha=0.75, linewidth=0.8, zorder=4,
+            fill=False, edgecolor=OBS_EDGE_COLOR,
+            linewidth=0.9, zorder=4,
         )
         ax.add_patch(c)
-        ax.plot(ox, oy, ".", color="#C0392B", markersize=2, zorder=5)
 
     # EE 位置
     if ee_xy is not None:
@@ -207,7 +223,8 @@ def draw_cbf_panel(
 
     # legend
     legend_handles = [
-        mpatches.Patch(fc="#E88070", ec="k", label="bottle 1"),
+        plt.Line2D([0], [0], color="#A01010", linewidth=0.9,
+                   label=f"obstacle (r={object_radius:.2f}m)"),
     ]
     if ee_xy is not None:
         legend_handles.append(
