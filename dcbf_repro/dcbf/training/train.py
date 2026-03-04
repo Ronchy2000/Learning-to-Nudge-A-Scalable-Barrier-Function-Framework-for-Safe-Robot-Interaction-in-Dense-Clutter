@@ -148,13 +148,23 @@ def train_model(
         train_files, val_files = resolve_data_files(data_cfg["train_glob"], data_cfg.get("val_glob"))
     history_len = model_cfg["history_len"]
     use_global_label = bool(data_cfg.get("use_global_label", False))
+    d_thresh = float(data_cfg.get("d_thresh", 0.0))
 
-    train_ds = DCBFDataset(files=train_files, history_len=history_len, use_global_label=use_global_label)
-    val_ds = DCBFDataset(files=val_files, history_len=history_len, use_global_label=use_global_label)
+    train_ds = DCBFDataset(files=train_files, history_len=history_len, use_global_label=use_global_label, d_thresh=d_thresh)
+    val_ds = DCBFDataset(files=val_files, history_len=history_len, use_global_label=use_global_label, d_thresh=0.0)
+
+    # 近边界加权参数
+    near_boundary_range = data_cfg.get("near_boundary_range", None)
+    if near_boundary_range is not None:
+        near_boundary_range = tuple(near_boundary_range)
+    near_boundary_weight = float(data_cfg.get("near_boundary_weight", 3.0))
 
     balance = bool(data_cfg.get("balance_safe_unsafe", True))
     if balance:
-        sampler = train_ds.make_balanced_sampler()
+        sampler = train_ds.make_balanced_sampler(
+            near_boundary_range=near_boundary_range,
+            near_boundary_weight=near_boundary_weight,
+        )
         train_loader = DataLoader(
             train_ds,
             batch_size=data_cfg["batch_size"],
@@ -266,6 +276,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out_dir", type=str, default=None, help="Override output directory.")
     parser.add_argument("--run_name", type=str, default=None, help="Override run name.")
     parser.add_argument("--sigma", type=float, default=None, help="Override loss sigma.")
+    parser.add_argument("--gamma", type=float, default=None, help="Override CBF decay rate gamma (Eq.10).")
+    parser.add_argument("--epochs", type=int, default=None, help="Override number of epochs.")
+    parser.add_argument("--lr", type=float, default=None, help="Override learning rate.")
+    parser.add_argument("--eta_s", type=float, default=None, help="Override safe loss weight.")
+    parser.add_argument("--eta_u", type=float, default=None, help="Override unsafe loss weight.")
+    parser.add_argument("--eta_d", type=float, default=None, help="Override derivative loss weight.")
     return parser
 
 
@@ -278,7 +294,18 @@ def main() -> None:
         cfg["data"]["val_glob"] = args.val_glob
     if args.sigma is not None:
         cfg["loss"]["sigma"] = float(args.sigma)
-    best_ckpt = train_model(cfg, resume=args.resume, out_dir=args.out_dir, run_name=args.run_name)
+    if args.gamma is not None:
+        cfg["loss"]["gamma"] = float(args.gamma)
+    if args.eta_s is not None:
+        cfg["loss"]["eta_s"] = float(args.eta_s)
+    if args.eta_u is not None:
+        cfg["loss"]["eta_u"] = float(args.eta_u)
+    if args.eta_d is not None:
+        cfg["loss"]["eta_d"] = float(args.eta_d)
+    best_ckpt = train_model(
+        cfg, resume=args.resume, out_dir=args.out_dir, run_name=args.run_name,
+        override_epochs=args.epochs, override_lr=args.lr,
+    )
     print(f"[train] done. best checkpoint: {best_ckpt}")
 
 

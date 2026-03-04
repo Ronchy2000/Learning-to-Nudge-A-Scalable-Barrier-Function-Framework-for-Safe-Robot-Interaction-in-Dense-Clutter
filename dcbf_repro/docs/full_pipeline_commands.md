@@ -198,6 +198,7 @@ python scripts/plot_cbf_heatmap.py \
 
 用 Step 3–6 的 checkpoint 画论文 Fig.2 风格的左右对比：
 
+> sigma=0.01
 ```bash
 python scripts/plot_cbf_heatmap.py \
   --checkpoint_init "${CKPT_001_INIT}" \
@@ -206,12 +207,13 @@ python scripts/plot_cbf_heatmap.py \
   --output outputs/cbf_heatmap_sigma001.png
 ```
 
+> sigma=0.02
 ```bash
 python scripts/plot_cbf_heatmap.py \
   --checkpoint_init "${CKPT_002_INIT}" \
   --checkpoint_refined "${CKPT_002_REFINED}" \
   --num_objects 40 --seed 42 --grid_res 200 \
-  --output outputs/cbf_heatmap_sigma002.png
+  --output outputs/cbf_heatmap_N40_sigma002.png
 ```
 
 运行时会打印诊断信息，关注 `neg%`：

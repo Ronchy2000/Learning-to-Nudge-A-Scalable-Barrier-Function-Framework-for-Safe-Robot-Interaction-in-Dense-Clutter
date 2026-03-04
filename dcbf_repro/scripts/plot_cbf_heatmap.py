@@ -87,12 +87,20 @@ def compute_cbf_grid(
     history_len: int,
     device: str = "cpu",
     batch_size: int = 4096,
+    tilt_ramp: bool = True,
+    contact_distance: float = 0.07,
+    object_radius: float = 0.05,
 ) -> np.ndarray:
     """
     对每个网格点 (x,y)，与每个物体 i 构建 object-centric 特征:
-      robot_feat  = (ee_x - obj_x, ee_y - obj_y, fixed_z)    # (3,)
-      obj_hist    = zeros(T, 4)   # 静态场景，历史状态全为 0
-    前向推理得 h_i(x)，取 min_i h_i 作为全局 barrier 值。
+      robot_feat  = (ee_x - obj_x, ee_y - obj_y, fixed_z)
+      obj_hist    = (0, 0, 0, tilt) × T
+
+    tilt_ramp=True 时：根据 EE 到物体的距离注入 tilt 曲线。
+    距离 ≤ object_radius → 全量 tilt（0.22 rad ≈ 12.6°），
+    距离 ≥ contact_distance → tilt = 0。
+    中间线性过渡，模拟"EE 触碰物体表面时开始倾斜"。
+    论文 Fig.2: 零等值线应紧贴物体表面。
 
     Returns: (G,) array
     """
@@ -100,20 +108,42 @@ def compute_cbf_grid(
 
     # robot_feat: (G, N, 3)
     rf = np.zeros((G, N, 3), dtype=np.float32)
+    dists = np.zeros((G, N), dtype=np.float32)
     for i in range(N):
-        rf[:, i, 0] = grid_xy[:, 0] - object_xy[i, 0]
-        rf[:, i, 1] = grid_xy[:, 1] - object_xy[i, 1]
+        dx = grid_xy[:, 0] - object_xy[i, 0]
+        dy = grid_xy[:, 1] - object_xy[i, 1]
+        rf[:, i, 0] = dx
+        rf[:, i, 1] = dy
         rf[:, i, 2] = fixed_z
-    rf = rf.reshape(G * N, 3)
+        dists[:, i] = np.sqrt(dx ** 2 + dy ** 2)
 
-    # object_hist_feat: 全 0（静态场景）
+    rf_flat = rf.reshape(G * N, 3)
+    dists_flat = dists.reshape(G * N)
+
+    # object_hist_feat
     of = np.zeros((G * N, T, 4), dtype=np.float32)
+    if tilt_ramp and T >= 5:
+        # 基础 tilt 渐升曲线（与训练数据 unsafe 分布匹配）
+        base_ramp = np.zeros(T, dtype=np.float32)
+        base_ramp[-1] = 0.218     # ~12.5°
+        base_ramp[-2] = 0.132
+        base_ramp[-3] = 0.052
+        base_ramp[-4] = 0.015
+        base_ramp[-5] = 0.003
+
+        # 根据距离缩放 tilt: 物体表面 → 全量, 接触距离外 → 0
+        r_inner = object_radius             # 0.05  物体表面
+        r_outer = contact_distance          # 0.07  接触距离
+        # alpha=1 在 r_inner 内(表面), alpha=0 在 r_outer 外, 线性过渡
+        alpha = np.clip((r_outer - dists_flat) / max(r_outer - r_inner, 1e-6), 0.0, 1.0)
+        # of shape: (G*N, T, 4), 只填 tilt 维（dim 3）
+        of[:, :, 3] = alpha[:, None] * base_ramp[None, :]
 
     barriers = np.zeros(G * N, dtype=np.float32)
     with torch.no_grad():
         for s in range(0, G * N, batch_size):
             e = min(s + batch_size, G * N)
-            r_t = torch.from_numpy(rf[s:e]).to(device)
+            r_t = torch.from_numpy(rf_flat[s:e]).to(device)
             o_t = torch.from_numpy(of[s:e]).to(device)
             barriers[s:e] = model(r_t, o_t).squeeze(-1).cpu().numpy()
 

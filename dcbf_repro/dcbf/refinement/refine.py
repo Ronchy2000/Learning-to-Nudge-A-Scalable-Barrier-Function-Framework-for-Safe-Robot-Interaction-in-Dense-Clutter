@@ -268,6 +268,11 @@ def main() -> None:
     ft_cfg["optim"] = dict(train_cfg["optim"])
     ft_cfg["optim"]["epochs"] = int(cfg["finetune"]["epochs"])
     ft_cfg["optim"]["lr"] = float(cfg["finetune"]["lr"])
+    ft_cfg["loss"] = dict(train_cfg["loss"])
+    # 从 refine.yaml 的 finetune 段覆盖所有损失超参数
+    for loss_key in ("eta_s", "eta_u", "eta_d", "gamma", "sigma"):
+        if loss_key in cfg["finetune"]:
+            ft_cfg["loss"][loss_key] = float(cfg["finetune"][loss_key])
     ft_cfg["logging"] = dict(train_cfg["logging"])
     ft_cfg["logging"]["out_dir"] = str(out_dir)
     ft_cfg["logging"]["run_name"] = cfg["finetune"]["run_name"]

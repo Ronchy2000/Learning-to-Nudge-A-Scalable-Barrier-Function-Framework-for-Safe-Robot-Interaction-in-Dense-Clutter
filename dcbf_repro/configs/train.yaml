@@ -6,6 +6,9 @@ data:
   num_workers: 0
   use_global_label: false
   balance_safe_unsafe: true    # WeightedRandomSampler 平衡安全/不安全样本（论文 Sec.V-A）
+  d_thresh: 0.20               # free-space discarding：丢弃 EE-物体距离 > 0.20m 的安全样本（论文 Sec.V-A）
+  near_boundary_range: [10.0, 20.0]  # 近边界倾斜角范围 [θ_lo, θ_hi] 度（论文 Sec.V-B）
+  near_boundary_weight: 3.0    # 近边界样本的采样权重倍数
 model:
   robot_dim: 3
   object_dim: 4
@@ -14,13 +17,13 @@ model:
   lstm_layers: 1
   mlp_hidden: 128
 loss:
-  gamma: 0.98
-  sigma: 0.02
-  eta_s: 1.0
-  eta_u: 1.0
-  eta_d: 0.2
+  gamma: 0.1             # CBF decay rate: B_{t+1} >= (1-γ)B_t，γ=0.1→barrier每步最多衰减10%
+  sigma: 0.02            # 鲁棒性裕度（论文 Eq.10）
+  eta_s: 1.0             # safe 分类损失权重
+  eta_u: 5.0             # unsafe 分类损失权重
+  eta_d: 1.0             # 导数损失权重（约束边界斜率，需较大值使梯度更陡）
 optim:
-  epochs: 30
+  epochs: 200
   lr: 0.0003
   weight_decay: 1.0e-5
   grad_clip: 5.0

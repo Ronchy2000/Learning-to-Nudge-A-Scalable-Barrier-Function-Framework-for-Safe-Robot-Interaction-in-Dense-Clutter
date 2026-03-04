@@ -9,11 +9,11 @@ import torch.nn.functional as F
 
 @dataclass
 class LossConfig:
-    gamma: float = 0.98
-    sigma: float = 0.02
-    eta_s: float = 1.0
-    eta_u: float = 1.0
-    eta_d: float = 0.2
+    gamma: float = 0.1       # 衰减率: B_{t+1} >= (1-γ)B_t, γ越小约束越紧
+    sigma: float = 0.02      # 鲁棒性裕度
+    eta_s: float = 1.0       # safe 分类损失权重
+    eta_u: float = 5.0       # unsafe 分类损失权重
+    eta_d: float = 1.0       # 导数损失权重（需较大值约束边界斜率）
 
     @classmethod
     def from_dict(cls, cfg):
